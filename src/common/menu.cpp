@@ -834,8 +834,9 @@ void DrawGraphics(float em) {
     GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 1.00f, 0.05f);
     static const char* const rgb_modes[] = {"NORMAL", "SOLID RED", "SOLID GREEN", "SOLID BLUE"};
     int rgb_mode = int(std::min(o.rgb_mode, 3u));
-    if (OptionRow("RGB COLOR", rgb_modes[rgb_mode])) {
-        o.rgb_mode = uint32_t(StepRange(rgb_mode, 0, 3, 1, 1));
+    int rgb_step = OptionRow("RGB COLOR", rgb_modes[rgb_mode]);
+    if (rgb_step) {
+        o.rgb_mode = uint32_t(StepRange(rgb_mode, 0, 3, 1, rgb_step));
         Changed();
     }
     if (ImGui::Button("RESET GRAPHICS")) {
