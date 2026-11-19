@@ -255,7 +255,7 @@ enum RowId { kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kAudioOutp
              kReflections, kParticles, kRain, kRainDrops, kShadows, kRoadReflections,
              kCheatNos, kCheatSpeedbreaker, kCheatCash, kCheatNoPolice, kCheatUnlockAll,
              kSkipMovies, kYellowTint, kNightMode, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic,
-             kTexturePacks, kTextureResolution, kBrightness };
+             kTexturePacks, kTextureResolution, kBrightness, kRgbMode };
 
 using rows::Kind;
 using rows::Row;
@@ -289,6 +289,7 @@ constexpr Row kGraphicsRows[] = {
     {Kind::Value, kMotionBlur, "MOTION BLUR"},
     {Kind::Value, kScreenFilter, "SCREEN FILTER"},
     {Kind::Value, kBrightness, "BRIGHTNESS"},
+    {Kind::Value, kRgbMode, "RGB COLOR MODE"},
     {Kind::Value, kTexturePacks, "TEXTURE PACKS"},
     {Kind::Value, kTextureResolution, "TEXTURE RESOLUTION"},
 };
@@ -450,6 +451,12 @@ bool StepGraphicsRow(int id, int step, Settings& s, char (&text)[64]) {
         case kScreenFilter:
             std::snprintf(text, sizeof(text), "%s", kScreenFilterNames[StepTable(kScreenFilters, o.screen_filter, step)]);
             return true;
+        case kRgbMode: {
+            static const char* const names[] = {"NORMAL", "SOLID RED", "SOLID GREEN", "SOLID BLUE"};
+            o.rgb_mode = uint32_t(StepRange(int(o.rgb_mode), 0, 3, 1, step));
+            std::snprintf(text, sizeof(text), "%s", names[o.rgb_mode]);
+            return true;
+        }
         case kBrightness:
             if (step) o.brightness = float(StepRange(int(std::lround(o.brightness * 100.0f)), 50, 150, 5, step)) / 100.0f;
             std::snprintf(text, sizeof(text), "%u%%", uint32_t(std::lround(o.brightness * 100.0f)));
@@ -825,15 +832,19 @@ void DrawGraphics(float em) {
     GraphicsStep("BRIGHTNESS", o.brightness, 0.50f, 1.50f, 0.05f);
     GraphicsStep("CONTRAST", o.contrast, 0.50f, 1.50f, 0.05f);
     GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 1.00f, 0.05f);
-    GraphicsStep("RED", o.red_gain, 0.50f, 1.50f, 0.05f);
-    GraphicsStep("GREEN", o.green_gain, 0.50f, 1.50f, 0.05f);
-    GraphicsStep("BLUE", o.blue_gain, 0.50f, 1.50f, 0.05f);
+    static const char* const rgb_modes[] = {"NORMAL", "SOLID RED", "SOLID GREEN", "SOLID BLUE"};
+    int rgb_mode = int(std::min(o.rgb_mode, 3u));
+    if (OptionRow("RGB COLOR", rgb_modes[rgb_mode])) {
+        o.rgb_mode = uint32_t(StepRange(rgb_mode, 0, 3, 1, 1));
+        Changed();
+    }
     if (ImGui::Button("RESET GRAPHICS")) {
         o.screen_filter = 0;
         o.brightness = 1.0f;
         o.contrast = 1.0f;
         o.sharpness = 0.35f;
         o.red_gain = o.green_gain = o.blue_gain = 1.0f;
+        o.rgb_mode = 0;
         Changed();
     }
 }
