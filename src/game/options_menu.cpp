@@ -761,6 +761,7 @@ auto GraphicsFields() {
         s.fps_cap,
         s.aniso,
         o.brightness,
+        o.rgb_mode,
         o.aspect_ratio,
         o.fps_counter,
         o.fps_position,
