@@ -32,7 +32,7 @@ struct Options {
     uint32_t screen_filter = 0;  // the present's look: 0 none, 1 sharpen, 2 vivid, 3 scanlines, 4 CRT, 5 HDR
     float brightness = 1.0f;  // post-process brightness, 0.5 to 1.5
     float contrast = 1.0f;  // post-process contrast, 0.5 to 1.5
-    float sharpness = 0.35f;  // post-process edge sharpening, 0 to 1
+    float sharpness = 0.35f;  // post-process edge sharpening, 0 to 1.5
     float red_gain = 1.0f;  // independent RGB channel gain
     float green_gain = 1.0f;
     float blue_gain = 1.0f;
