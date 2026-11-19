@@ -42,6 +42,11 @@ void Load(const void* table) {
     std::string language = t["language"].value_or(o.language);
     // a language no longer offered (French, German, Italian, Spanish) goes back to English
     if (KnownLanguage(language) && LanguageAvailable(language)) o.language = language;
+    o.contrast = t["graphics_contrast"].value_or(o.contrast);
+    o.sharpness = t["graphics_sharpness"].value_or(o.sharpness);
+    o.red_gain = t["graphics_red"].value_or(o.red_gain);
+    o.green_gain = t["graphics_green"].value_or(o.green_gain);
+    o.blue_gain = t["graphics_blue"].value_or(o.blue_gain);
     if (const toml::table* keys = t["keys"].as_table())
         for (auto&& [id, value] : *keys)
             if (auto v = value.value<std::string>()) o.keys[std::string(id.str())] = *v;
@@ -62,6 +67,11 @@ void Save(void* table) {
     toml::table& t = *static_cast<toml::table*>(table);
     const Options& o = Opt();
     t.insert("language", o.language);
+    t.insert("graphics_contrast", o.contrast);
+    t.insert("graphics_sharpness", o.sharpness);
+    t.insert("graphics_red", o.red_gain);
+    t.insert("graphics_green", o.green_gain);
+    t.insert("graphics_blue", o.blue_gain);
     toml::table keys;
     for (const auto& [id, value] : o.keys) keys.insert(id, value);
     t.insert("keys", keys);
