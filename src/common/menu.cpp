@@ -91,8 +91,6 @@ constexpr std::pair<ImGuiCol, ImVec4> kPanelColors[] = {
 
 constexpr uint32_t kAnisoValues[] = {0, 2, 4, 8, 16};
 const char* const kAnisoNames[] = {"GAME DEFAULT", "2x", "4x", "8x", "16x"};
-constexpr uint32_t kScreenFilters[] = {0, 1, 2, 3, 4, 5};
-const char* const kScreenFilterNames[] = {"OFF", "SHARPEN", "VIVID", "SCANLINES", "CRT", "HDR"};
 constexpr uint32_t kAntiAliasings[] = {game::kAaOff, game::kAaFxaa, game::kAaSsaa};
 const char* const kAntiAliasingNames[] = {"OFF", "FXAA", "SSAA 2X"};
 // Options::reflections: how often the cars' reflection is drawn
@@ -250,12 +248,12 @@ void Changed() {
 }
 
 enum RowId { kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kAudioOutput, kLanguage, kGyro,
-             kGyroSensitivity, kTouchOpacity, kTouchSize, kTouchEdit, kCheckUpdates, kAspectRatio, kScreenFilter,
+             kGyroSensitivity, kTouchOpacity, kTouchSize, kTouchEdit, kCheckUpdates, kAspectRatio,
              kAntiAliasing, kFpsPosition, kFpsTemps, kStickMode, kBloom, kFog, kDonate, kGithub, kYoutube, kFpsUsage,
              kReflections, kParticles, kRain, kRainDrops, kShadows, kRoadReflections,
              kCheatNos, kCheatSpeedbreaker, kCheatCash, kCheatNoPolice, kCheatUnlockAll,
              kSkipMovies, kYellowTint, kNightMode, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic,
-             kTexturePacks, kTextureResolution, kBrightness, kRedGain, kGreenGain, kBlueGain };
+             kTexturePacks, kTextureResolution };
 
 using rows::Kind;
 using rows::Row;
@@ -287,11 +285,6 @@ constexpr Row kGraphicsRows[] = {
     {Kind::Value, kYellowTint, "YELLOW TINT"},
     {Kind::Value, kNightMode, "NIGHT MODE"},
     {Kind::Value, kMotionBlur, "MOTION BLUR"},
-    {Kind::Value, kScreenFilter, "SCREEN FILTER"},
-    {Kind::Value, kBrightness, "BRIGHTNESS"},
-    {Kind::Value, kRedGain, "RED INTENSITY"},
-    {Kind::Value, kGreenGain, "GREEN INTENSITY"},
-    {Kind::Value, kBlueGain, "BLUE INTENSITY"},
     {Kind::Value, kTexturePacks, "TEXTURE PACKS"},
     {Kind::Value, kTextureResolution, "TEXTURE RESOLUTION"},
 };
@@ -449,21 +442,6 @@ bool StepGraphicsRow(int id, int step, Settings& s, char (&text)[64]) {
             return true;
         case kAntiAliasing:
             std::snprintf(text, sizeof(text), "%s", kAntiAliasingNames[StepTable(kAntiAliasings, o.anti_aliasing, step)]);
-            return true;
-        case kScreenFilter:
-            std::snprintf(text, sizeof(text), "%s", kScreenFilterNames[StepTable(kScreenFilters, o.screen_filter, step)]);
-            return true;
-        case kRedGain:
-        case kGreenGain:
-        case kBlueGain: {
-            float& gain = id == kRedGain ? o.red_gain : (id == kGreenGain ? o.green_gain : o.blue_gain);
-            if (step) gain = std::clamp(gain + float(step) * 0.05f, 0.50f, 1.50f);
-            std::snprintf(text, sizeof(text), "%u%%", uint32_t(std::lround(gain * 100.0f)));
-            return true;
-        }
-        case kBrightness:
-            if (step) o.brightness = float(StepRange(int(std::lround(o.brightness * 100.0f)), 50, 150, 5, step)) / 100.0f;
-            std::snprintf(text, sizeof(text), "%u%%", uint32_t(std::lround(o.brightness * 100.0f)));
             return true;
         case kReflections:
             std::snprintf(text, sizeof(text), "%s", kReflectionRateNames[StepTable(kReflectionRates, o.reflections, step)]);
@@ -835,7 +813,7 @@ void DrawGraphics(float em) {
     ImGui::TextDisabled("Tap - or + to adjust; values are percentages.");
     GraphicsStep("BRIGHTNESS", o.brightness, 0.50f, 1.50f, 0.05f);
     GraphicsStep("CONTRAST", o.contrast, 0.50f, 1.50f, 0.05f);
-    GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 2.00f, 0.05f);
+    GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 1.50f, 0.05f);
     GraphicsStep("RED INTENSITY", o.red_gain, 0.50f, 1.50f, 0.05f);
     GraphicsStep("GREEN INTENSITY", o.green_gain, 0.50f, 1.50f, 0.05f);
     GraphicsStep("BLUE INTENSITY", o.blue_gain, 0.50f, 1.50f, 0.05f);
