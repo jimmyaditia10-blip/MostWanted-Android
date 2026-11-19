@@ -4242,8 +4242,7 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
     const game::Options& visual = game::Opt();
     uint32_t filter = visual.screen_filter, aa = visual.anti_aliasing;
     bool adjust = visual.brightness != 1.0f || visual.contrast != 1.0f || visual.sharpness > 0.001f ||
-                  visual.red_gain != 1.0f || visual.green_gain != 1.0f || visual.blue_gain != 1.0f ||
-;
+                  visual.red_gain != 1.0f || visual.green_gain != 1.0f || visual.blue_gain != 1.0f;
     bool post = t && (filter || aa || adjust);
     if (post) {
         c[8] = 1.0f / float(std::max(t->w, 1u));
