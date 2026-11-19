@@ -199,10 +199,6 @@ float4 psmain(O i) : SV_Target {
     c *= grade.yzw;
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
-    if (src.w > 0.5) {
-        float3 tint = src.w < 1.5 ? float3(1.0, 0.0, 0.0) : (src.w < 2.5 ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0));
-        c = Luma(c).xxx * tint;  // solid monochrome RGB while preserving scene luminance and detail
-    }
     c *= post.w;  // player brightness, applied after the game's gamma ramp
     if (mode == 5) c = saturate(Hdr(c));
     return float4(c, 1);
@@ -4247,13 +4243,12 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
     uint32_t filter = visual.screen_filter, aa = visual.anti_aliasing;
     bool adjust = visual.brightness != 1.0f || visual.contrast != 1.0f || visual.sharpness > 0.001f ||
                   visual.red_gain != 1.0f || visual.green_gain != 1.0f || visual.blue_gain != 1.0f ||
-                  visual.rgb_mode != 0;
+;
     bool post = t && (filter || aa || adjust);
     if (post) {
         c[8] = 1.0f / float(std::max(t->w, 1u));
         c[9] = 1.0f / float(std::max(t->h, 1u));
         c[10] = float(t->gh ? t->gh : guest_h_);
-        c[11] = float(std::min(visual.rgb_mode, 3u));
         c[12] = float(filter);
         c[13] = aa == game::kAaFxaa ? 1.0f : 0.0f;
         c[14] = visual.sharpness;
