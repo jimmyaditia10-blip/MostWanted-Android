@@ -30,6 +30,11 @@ struct Options {
     bool fps_usage = true;      // the counter's CPU and GPU load
     bool fps_temps = true;      // the counter's CPU, GPU and battery temperatures
     uint32_t screen_filter = 0;  // the present's look: 0 none, 1 sharpen, 2 vivid, 3 scanlines, 4 CRT, 5 HDR
+    float contrast = 1.0f;  // post-process contrast, 0.5 to 1.5
+    float sharpness = 0.35f;  // post-process edge sharpening, 0 to 1
+    float red_gain = 1.0f;  // independent RGB channel gain
+    float green_gain = 1.0f;
+    float blue_gain = 1.0f;
     uint32_t anti_aliasing = 0;  // kAaOff, kAaFxaa or kAaSsaa
     uint32_t aspect_ratio = 0;  // the frame's shape in hundredths (133 is 4:3), 0 the whole screen; common/aspect.h
     bool bloom = true;  // the glow added over the frame, native/vulkan.cpp skips it when off
