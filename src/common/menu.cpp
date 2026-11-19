@@ -835,7 +835,7 @@ void DrawGraphics(float em) {
     ImGui::TextDisabled("Tap - or + to adjust; values are percentages.");
     GraphicsStep("BRIGHTNESS", o.brightness, 0.50f, 1.50f, 0.05f);
     GraphicsStep("CONTRAST", o.contrast, 0.50f, 1.50f, 0.05f);
-    GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 1.00f, 0.05f);
+    GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 2.00f, 0.05f);
     GraphicsStep("RED INTENSITY", o.red_gain, 0.50f, 1.50f, 0.05f);
     GraphicsStep("GREEN INTENSITY", o.green_gain, 0.50f, 1.50f, 0.05f);
     GraphicsStep("BLUE INTENSITY", o.blue_gain, 0.50f, 1.50f, 0.05f);
