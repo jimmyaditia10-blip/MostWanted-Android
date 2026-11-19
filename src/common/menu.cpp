@@ -181,8 +181,9 @@ RowBox MeasureRow() {
     box.em = ImGui::GetFontSize();
     box.row_w = ImGui::GetContentRegionAvail().x;
     box.row_h = ImGui::GetFrameHeight();
-    box.value_w = box.em * kValueEms;
-    box.block_w = box.row_h * 2 + box.value_w + style.ItemSpacing.x * 2;
+    box.value_w = box.em * 8.0f;
+    const float button_w = box.row_h * 1.25f;
+    box.block_w = button_w * 2 + box.value_w + style.ItemSpacing.x * 2;
     box.row_x = ImGui::GetCursorPosX();
     box.row_y = ImGui::GetCursorPosY();
     return box;
@@ -221,14 +222,15 @@ int OptionRow(const char* label, const char* value) {
     ImGui::PushItemFlag(ImGuiItemFlags_NoNav | ImGuiItemFlags_ButtonRepeat, true);  // held arrows keep stepping
     float block_x = box.row_x + box.row_w - box.block_w;
     ImGui::SetCursorPos(ImVec2(block_x, box.row_y));
-    if (ImGui::ArrowButton("##dec", ImGuiDir_Left)) step = -1;
-    float value_x = block_x + box.row_h + style.ItemSpacing.x;
+    const ImVec2 step_size(box.row_h * 1.25f, box.row_h);
+    if (ImGui::Button("-", step_size)) step = -1;
+    float value_x = block_x + step_size.x + style.ItemSpacing.x;
     float pad = (box.value_w - ImGui::CalcTextSize(value).x) * 0.5f;
     ImGui::SetCursorPos(ImVec2(value_x + std::max(pad, 0.0f), box.row_y));
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(value);
     ImGui::SetCursorPos(ImVec2(value_x + box.value_w + style.ItemSpacing.x, box.row_y));
-    if (ImGui::ArrowButton("##inc", ImGuiDir_Right)) step = 1;
+    if (ImGui::Button("+", step_size)) step = 1;
     ImGui::PopItemFlag();
     ImGui::PopID();
     EndRow(box);
@@ -253,7 +255,7 @@ enum RowId { kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kAudioOutp
              kReflections, kParticles, kRain, kRainDrops, kShadows, kRoadReflections,
              kCheatNos, kCheatSpeedbreaker, kCheatCash, kCheatNoPolice, kCheatUnlockAll,
              kSkipMovies, kYellowTint, kNightMode, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic,
-             kTexturePacks, kTextureResolution };
+             kTexturePacks, kTextureResolution, kBrightness };
 
 using rows::Kind;
 using rows::Row;
@@ -286,6 +288,7 @@ constexpr Row kGraphicsRows[] = {
     {Kind::Value, kNightMode, "NIGHT MODE"},
     {Kind::Value, kMotionBlur, "MOTION BLUR"},
     {Kind::Value, kScreenFilter, "SCREEN FILTER"},
+    {Kind::Value, kBrightness, "BRIGHTNESS"},
     {Kind::Value, kTexturePacks, "TEXTURE PACKS"},
     {Kind::Value, kTextureResolution, "TEXTURE RESOLUTION"},
 };
@@ -446,6 +449,10 @@ bool StepGraphicsRow(int id, int step, Settings& s, char (&text)[64]) {
             return true;
         case kScreenFilter:
             std::snprintf(text, sizeof(text), "%s", kScreenFilterNames[StepTable(kScreenFilters, o.screen_filter, step)]);
+            return true;
+        case kBrightness:
+            if (step) o.brightness = float(StepRange(int(std::lround(o.brightness * 100.0f)), 50, 150, 5, step)) / 100.0f;
+            std::snprintf(text, sizeof(text), "%u%%", uint32_t(std::lround(o.brightness * 100.0f)));
             return true;
         case kReflections:
             std::snprintf(text, sizeof(text), "%s", kReflectionRateNames[StepTable(kReflectionRates, o.reflections, step)]);
@@ -794,6 +801,17 @@ void DrawTitle(float em) {
     if (tab("MY MUSIC", g_music_tab)) { g_music_tab = true; g_graphics_tab = false; }
 }
 
+// Large +/- controls keep every graphics value readable and easy to tap on a phone.
+void GraphicsStep(const char* label, float& value, float lo, float hi, float increment) {
+    char text[24];
+    std::snprintf(text, sizeof(text), "%u%%", uint32_t(std::lround(value * 100.0f)));
+    int step = OptionRow(label, text);
+    if (step) {
+        value = std::clamp(value + float(step) * increment, lo, hi);
+        Changed();
+    }
+}
+
 // Live post-processing controls. Values are applied by the Vulkan present shader every frame.
 void DrawGraphics(float em) {
     game::Options& o = game::Opt();
@@ -803,14 +821,16 @@ void DrawGraphics(float em) {
         o.screen_filter = uint32_t(filter);
         Changed();
     }
-    ImGui::TextDisabled("Live preview - changes apply immediately");
-    if (ImGui::SliderFloat("CONTRAST", &o.contrast, 0.5f, 1.5f, "%.2f")) Changed();
-    if (ImGui::SliderFloat("SHARPNESS", &o.sharpness, 0.0f, 1.0f, "%.2f")) Changed();
-    if (ImGui::SliderFloat("RED", &o.red_gain, 0.5f, 1.5f, "%.2f")) Changed();
-    if (ImGui::SliderFloat("GREEN", &o.green_gain, 0.5f, 1.5f, "%.2f")) Changed();
-    if (ImGui::SliderFloat("BLUE", &o.blue_gain, 0.5f, 1.5f, "%.2f")) Changed();
+    ImGui::TextDisabled("Tap - or + to adjust; values are percentages.");
+    GraphicsStep("BRIGHTNESS", o.brightness, 0.50f, 1.50f, 0.05f);
+    GraphicsStep("CONTRAST", o.contrast, 0.50f, 1.50f, 0.05f);
+    GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 1.00f, 0.05f);
+    GraphicsStep("RED", o.red_gain, 0.50f, 1.50f, 0.05f);
+    GraphicsStep("GREEN", o.green_gain, 0.50f, 1.50f, 0.05f);
+    GraphicsStep("BLUE", o.blue_gain, 0.50f, 1.50f, 0.05f);
     if (ImGui::Button("RESET GRAPHICS")) {
         o.screen_filter = 0;
+        o.brightness = 1.0f;
         o.contrast = 1.0f;
         o.sharpness = 0.35f;
         o.red_gain = o.green_gain = o.blue_gain = 1.0f;
