@@ -98,7 +98,7 @@ float4 psmain(O i) : SV_Target {
 // the present with the screen filter or anti-aliasing the player chose: the blit's, then post.x a filter (1 sharpen,
 // 2 vivid, 3 scanlines, 4 CRT) and post.y FXAA; src.xy a texel, src.z the frame's lines
 const char* kPresentHlsl = R"(
-cbuffer B : register(b1) { float4 uvrect; float4 opts; float4 src; float4 post; };
+cbuffer B : register(b1) { float4 uvrect; float4 opts; float4 src; float4 post; float4 grade; };
 Texture2D img : register(t0);
 Texture2D lut : register(t1);
 SamplerState ls : register(s0);
@@ -141,12 +141,12 @@ float3 Source(float2 uv, float2 px) {
     return c / (n * n);
 }
 // the cross's difference added back, held within the neighbours' range so edges get no halo
-float3 Sharpen(float2 uv, float3 c) {
+float3 Sharpen(float2 uv, float3 c, float strength) {
     float2 r = src.xy * max(opts.z, 1.0);
     float3 n = Tap(uv + float2(0, -r.y)), s = Tap(uv + float2(0, r.y));
     float3 w = Tap(uv + float2(-r.x, 0)), e = Tap(uv + float2(r.x, 0));
     float3 lo = min(c, min(min(n, s), min(w, e))), hi = max(c, max(max(n, s), max(w, e)));
-    return clamp(c + (4.0 * c - n - s - w - e) * 0.35, lo, hi);
+    return clamp(c + (4.0 * c - n - s - w - e) * (0.35 * saturate(strength)), lo, hi);
 }
 float3 Vivid(float3 c) {
     c = lerp(Luma(c).xxx, c, 1.3);
@@ -180,7 +180,7 @@ float4 psmain(O i) : SV_Target {
     }
     float2 uv = uvrect.xy + q * uvrect.zw;
     float3 c = Source(uv, px);
-    if (mode == 1) c = Sharpen(uv, c);
+    if (post.z > 0.0) c = Sharpen(uv, c, post.z);
     else if (mode == 2) c = Vivid(c);
     else if (mode == 3) c *= Scan(q.y, 0.3) * 1.12;
     else if (mode == 4) {
@@ -195,6 +195,8 @@ float4 psmain(O i) : SV_Target {
         float v = pow(saturate(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y)), 0.18);
         c *= v * 1.38;
     }
+    c = (c - 0.5) * grade.x + 0.5;
+    c *= grade.yzw;
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
     // after the game's gamma ramp, so a brightness set high is held back too
