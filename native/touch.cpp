@@ -820,7 +820,11 @@ void Centre(size_t i, float& cx, float& cy) {
     cy = p.y * Height();
 }
 
-float Radius(size_t i) { return PlaceOf(i).r * g_scale * Height(); }
+float Radius(size_t i) {
+    // Keep the Android settings gear easy to spot and hit without changing any other control's size.
+    float gear_scale = i < kButtonCount && kButtons[i].press == kPanel ? 1.4f : 1.0f;
+    return PlaceOf(i).r * g_scale * Height() * gear_scale;
+}
 
 bool Pedal(size_t i) { return kButtons[i].press == kAnalogLT || kButtons[i].press == kAnalogRT; }
 
