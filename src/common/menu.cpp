@@ -777,6 +777,7 @@ void Defaults() {
 }
 
 bool g_music_tab = false;
+bool g_graphics_tab = false;
 
 // the panel's two pages, one button each, the open one lit
 void DrawTitle(float em) {
@@ -786,9 +787,35 @@ void DrawTitle(float em) {
         if (open) ImGui::PopStyleColor();
         return pressed;
     };
-    if (tab(Ui("CHEATS").c_str(), !g_music_tab)) g_music_tab = false;
+    if (tab(Ui("CHEATS").c_str(), !g_music_tab && !g_graphics_tab)) { g_music_tab = false; g_graphics_tab = false; }
     ImGui::SameLine();
-    if (tab("MY MUSIC", g_music_tab)) g_music_tab = true;
+    if (tab("GRAPHICS", g_graphics_tab)) { g_music_tab = false; g_graphics_tab = true; }
+    ImGui::SameLine();
+    if (tab("MY MUSIC", g_music_tab)) { g_music_tab = true; g_graphics_tab = false; }
+}
+
+// Live post-processing controls. Values are applied by the Vulkan present shader every frame.
+void DrawGraphics(float em) {
+    game::Options& o = game::Opt();
+    static const char* filters[] = {"OFF", "SHARPEN", "VIVID", "SCANLINES", "CRT", "HDR"};
+    int filter = int(std::min(o.screen_filter, 5u));
+    if (ImGui::Combo("SHADER", &filter, filters, IM_ARRAYSIZE(filters))) {
+        o.screen_filter = uint32_t(filter);
+        Changed();
+    }
+    ImGui::TextDisabled("Live preview - changes apply immediately");
+    if (ImGui::SliderFloat("CONTRAST", &o.contrast, 0.5f, 1.5f, "%.2f")) Changed();
+    if (ImGui::SliderFloat("SHARPNESS", &o.sharpness, 0.0f, 1.0f, "%.2f")) Changed();
+    if (ImGui::SliderFloat("RED", &o.red_gain, 0.5f, 1.5f, "%.2f")) Changed();
+    if (ImGui::SliderFloat("GREEN", &o.green_gain, 0.5f, 1.5f, "%.2f")) Changed();
+    if (ImGui::SliderFloat("BLUE", &o.blue_gain, 0.5f, 1.5f, "%.2f")) Changed();
+    if (ImGui::Button("RESET GRAPHICS")) {
+        o.screen_filter = 0;
+        o.contrast = 1.0f;
+        o.sharpness = 0.35f;
+        o.red_gain = o.green_gain = o.blue_gain = 1.0f;
+        Changed();
+    }
 }
 
 // My Music: what plays and how, then every song in the folder, with a tap to play it, where it may play and its place in the list
@@ -899,6 +926,7 @@ void DrawPanel() {
         ImGui::BeginChild("##rows", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened);
         g_hovered_box = -1;
         if (g_music_tab) DrawMusic(em);
+        else if (g_graphics_tab) DrawGraphics(em);
         else DrawRows(g_page);
         DragScroll();
         ImGui::EndChild();
