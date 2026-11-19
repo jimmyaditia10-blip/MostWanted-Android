@@ -42,6 +42,7 @@ void Load(const void* table) {
     std::string language = t["language"].value_or(o.language);
     // a language no longer offered (French, German, Italian, Spanish) goes back to English
     if (KnownLanguage(language) && LanguageAvailable(language)) o.language = language;
+    o.brightness = std::clamp(t["graphics_brightness"].value_or(o.brightness), 0.5f, 1.5f);
     o.contrast = t["graphics_contrast"].value_or(o.contrast);
     o.sharpness = t["graphics_sharpness"].value_or(o.sharpness);
     o.red_gain = t["graphics_red"].value_or(o.red_gain);
@@ -67,6 +68,7 @@ void Save(void* table) {
     toml::table& t = *static_cast<toml::table*>(table);
     const Options& o = Opt();
     t.insert("language", o.language);
+    t.insert("graphics_brightness", o.brightness);
     t.insert("graphics_contrast", o.contrast);
     t.insert("graphics_sharpness", o.sharpness);
     t.insert("graphics_red", o.red_gain);
