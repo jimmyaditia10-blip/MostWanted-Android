@@ -44,7 +44,7 @@ void Load(const void* table) {
     if (KnownLanguage(language) && LanguageAvailable(language)) o.language = language;
     o.brightness = std::clamp(t["graphics_brightness"].value_or(o.brightness), 0.5f, 1.5f);
     o.contrast = t["graphics_contrast"].value_or(o.contrast);
-    o.sharpness = t["graphics_sharpness"].value_or(o.sharpness);
+    o.sharpness = std::clamp(t["graphics_sharpness"].value_or(o.sharpness), 0.0f, 2.0f);
     o.red_gain = std::clamp(t["graphics_red"].value_or(o.red_gain), 0.5f, 1.5f);
     o.green_gain = std::clamp(t["graphics_green"].value_or(o.green_gain), 0.5f, 1.5f);
     o.blue_gain = std::clamp(t["graphics_blue"].value_or(o.blue_gain), 0.5f, 1.5f);
