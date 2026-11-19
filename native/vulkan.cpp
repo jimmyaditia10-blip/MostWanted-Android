@@ -4235,16 +4235,24 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
     float aspect = game::Aspect();
     float w = float(swap_extent_.width), h = float(swap_extent_.height);
     float vw = std::min(w, h * aspect), vh = vw / aspect;
-    float c[16] = {0, 0, 1, 1, gamma_ ? 1.0f : 0.0f, 0, 1, 1};
+    float c[20] = {0, 0, 1, 1, gamma_ ? 1.0f : 0.0f, 0, 1, 1};
     // the screen filter and anti-aliasing, off unless the player picks them: the plain blit then
-    uint32_t filter = game::Opt().screen_filter, aa = game::Opt().anti_aliasing;
-    bool post = t && (filter || aa);
+    const game::Options& visual = game::Opt();
+    uint32_t filter = visual.screen_filter, aa = visual.anti_aliasing;
+    bool adjust = visual.contrast != 1.0f || visual.sharpness > 0.001f || visual.red_gain != 1.0f ||
+                  visual.green_gain != 1.0f || visual.blue_gain != 1.0f;
+    bool post = t && (filter || aa || adjust);
     if (post) {
         c[8] = 1.0f / float(std::max(t->w, 1u));
         c[9] = 1.0f / float(std::max(t->h, 1u));
         c[10] = float(t->gh ? t->gh : guest_h_);
         c[12] = float(filter);
         c[13] = aa == game::kAaFxaa ? 1.0f : 0.0f;
+        c[14] = visual.sharpness;
+        c[16] = visual.contrast;
+        c[17] = visual.red_gain;
+        c[18] = visual.green_gain;
+        c[19] = visual.blue_gain;
         // supersampled: the texels each screen pixel covers, averaged
         if (aa == game::kAaSsaa) c[6] = std::clamp(std::round(float(t->h) / std::max(vh, 1.0f)), 1.0f, 4.0f);
     }
