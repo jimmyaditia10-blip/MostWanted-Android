@@ -36,7 +36,6 @@ struct Options {
     float red_gain = 1.0f;  // independent RGB channel gain
     float green_gain = 1.0f;
     float blue_gain = 1.0f;
-    uint32_t rgb_mode = 0;  // 0 normal, 1 solid red, 2 solid green, 3 solid blue
     uint32_t anti_aliasing = 0;  // kAaOff, kAaFxaa or kAaSsaa
     uint32_t aspect_ratio = 0;  // the frame's shape in hundredths (133 is 4:3), 0 the whole screen; common/aspect.h
     bool bloom = true;  // the glow added over the frame, native/vulkan.cpp skips it when off
