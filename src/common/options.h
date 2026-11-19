@@ -30,6 +30,7 @@ struct Options {
     bool fps_usage = true;      // the counter's CPU and GPU load
     bool fps_temps = true;      // the counter's CPU, GPU and battery temperatures
     uint32_t screen_filter = 0;  // the present's look: 0 none, 1 sharpen, 2 vivid, 3 scanlines, 4 CRT, 5 HDR
+    float brightness = 1.0f;  // post-process brightness, 0.5 to 1.5
     float contrast = 1.0f;  // post-process contrast, 0.5 to 1.5
     float sharpness = 0.35f;  // post-process edge sharpening, 0 to 1
     float red_gain = 1.0f;  // independent RGB channel gain
