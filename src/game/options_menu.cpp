@@ -760,6 +760,7 @@ auto GraphicsFields() {
         s.vsync,
         s.fps_cap,
         s.aniso,
+        o.brightness,
         o.aspect_ratio,
         o.fps_counter,
         o.fps_position,
