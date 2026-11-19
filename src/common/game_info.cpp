@@ -45,9 +45,9 @@ void Load(const void* table) {
     o.brightness = std::clamp(t["graphics_brightness"].value_or(o.brightness), 0.5f, 1.5f);
     o.contrast = t["graphics_contrast"].value_or(o.contrast);
     o.sharpness = t["graphics_sharpness"].value_or(o.sharpness);
-    o.red_gain = t["graphics_red"].value_or(o.red_gain);
-    o.green_gain = t["graphics_green"].value_or(o.green_gain);
-    o.blue_gain = t["graphics_blue"].value_or(o.blue_gain);
+    o.red_gain = std::clamp(t["graphics_red"].value_or(o.red_gain), 0.5f, 1.5f);
+    o.green_gain = std::clamp(t["graphics_green"].value_or(o.green_gain), 0.5f, 1.5f);
+    o.blue_gain = std::clamp(t["graphics_blue"].value_or(o.blue_gain), 0.5f, 1.5f);
     if (const toml::table* keys = t["keys"].as_table())
         for (auto&& [id, value] : *keys)
             if (auto v = value.value<std::string>()) o.keys[std::string(id.str())] = *v;
