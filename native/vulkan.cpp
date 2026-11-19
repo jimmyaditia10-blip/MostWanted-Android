@@ -146,7 +146,7 @@ float3 Sharpen(float2 uv, float3 c, float strength) {
     float3 n = Tap(uv + float2(0, -r.y)), s = Tap(uv + float2(0, r.y));
     float3 w = Tap(uv + float2(-r.x, 0)), e = Tap(uv + float2(r.x, 0));
     float3 lo = min(c, min(min(n, s), min(w, e))), hi = max(c, max(max(n, s), max(w, e)));
-    return clamp(c + (4.0 * c - n - s - w - e) * (0.35 * clamp(strength, 0.0, 2.0)), lo, hi);
+    return clamp(c + (4.0 * c - n - s - w - e) * (0.35 * clamp(strength, 0.0, 1.5)), lo, hi);
 }
 float3 Vivid(float3 c) {
     c = lerp(Luma(c).xxx, c, 1.3);
