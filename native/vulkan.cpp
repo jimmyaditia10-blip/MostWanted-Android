@@ -199,7 +199,7 @@ float4 psmain(O i) : SV_Target {
     c *= grade.yzw;
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
-    // after the game's gamma ramp, so a brightness set high is held back too
+    c *= post.w;  // player brightness, applied after the game's gamma ramp
     if (mode == 5) c = saturate(Hdr(c));
     return float4(c, 1);
 }
@@ -4241,8 +4241,8 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
     // the screen filter and anti-aliasing, off unless the player picks them: the plain blit then
     const game::Options& visual = game::Opt();
     uint32_t filter = visual.screen_filter, aa = visual.anti_aliasing;
-    bool adjust = visual.contrast != 1.0f || visual.sharpness > 0.001f || visual.red_gain != 1.0f ||
-                  visual.green_gain != 1.0f || visual.blue_gain != 1.0f;
+    bool adjust = visual.brightness != 1.0f || visual.contrast != 1.0f || visual.sharpness > 0.001f ||
+                  visual.red_gain != 1.0f || visual.green_gain != 1.0f || visual.blue_gain != 1.0f;
     bool post = t && (filter || aa || adjust);
     if (post) {
         c[8] = 1.0f / float(std::max(t->w, 1u));
@@ -4251,6 +4251,7 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
         c[12] = float(filter);
         c[13] = aa == game::kAaFxaa ? 1.0f : 0.0f;
         c[14] = visual.sharpness;
+        c[15] = visual.brightness;
         c[16] = visual.contrast;
         c[17] = visual.red_gain;
         c[18] = visual.green_gain;
