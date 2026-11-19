@@ -48,6 +48,7 @@ void Load(const void* table) {
     o.red_gain = t["graphics_red"].value_or(o.red_gain);
     o.green_gain = t["graphics_green"].value_or(o.green_gain);
     o.blue_gain = t["graphics_blue"].value_or(o.blue_gain);
+    o.rgb_mode = uint32_t(std::clamp<int64_t>(t["graphics_rgb_mode"].value_or(int64_t(o.rgb_mode)), 0, 3));
     if (const toml::table* keys = t["keys"].as_table())
         for (auto&& [id, value] : *keys)
             if (auto v = value.value<std::string>()) o.keys[std::string(id.str())] = *v;
@@ -74,6 +75,7 @@ void Save(void* table) {
     t.insert("graphics_red", o.red_gain);
     t.insert("graphics_green", o.green_gain);
     t.insert("graphics_blue", o.blue_gain);
+    t.insert("graphics_rgb_mode", int64_t(o.rgb_mode));
     toml::table keys;
     for (const auto& [id, value] : o.keys) keys.insert(id, value);
     t.insert("keys", keys);
