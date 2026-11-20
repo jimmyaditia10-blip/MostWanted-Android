@@ -1,6 +1,7 @@
 package com.racas.mostwanted;
 
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -27,6 +28,8 @@ import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 // PC add-on cars (Binary and VltEd install files) as files the Xbox game reads: convert makes one car's Package, which is
 // kept, and build makes the game's files for all of them. Add-ons get car types of their own after the game's 84 (84 is
@@ -69,6 +72,7 @@ final class CarConverter {
         String car, title, manufacturer;
         byte[] geometry, textures, script, logo;  // script and logo may be null
         int logoWidth, logoHeight, logoFormat;
+        byte[] sourceAssets; // original Binary/Unlimiter/Binary-script/audio assets retained for later conversion
     }
 
     // a kept car for build: its two big files by path
@@ -2699,6 +2703,27 @@ final class CarConverter {
         return scripts.size() == 1 ? scripts.get(0) : null;
     }
 
+    private static byte[] sourceAssetArchive(Map<String, byte[]> mod) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            List<String> names = new ArrayList<>(mod.keySet());
+            names.sort(String.CASE_INSENSITIVE_ORDER);
+            for (String name : names) {
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (lower.endsWith("/geometry.bin") || lower.endsWith("/textures.bin")) continue;
+                if (!(lower.endsWith(".end") || lower.endsWith(".nfsms") || lower.endsWith(".ini")
+                        || lower.endsWith(".gin") || lower.endsWith(".wav") || lower.endsWith(".fng")
+                        || lower.endsWith(".dds") || lower.contains("/carparts/"))) continue;
+                ZipEntry entry = new ZipEntry(name.replace('\\\\', '/'));
+                entry.setTime(0L);
+                zip.putNextEntry(entry);
+                zip.write(mod.get(name));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
+    }
+
     // mod: one car's files by their paths in the archive, with / in them (carFiles)
     static Package convert(Disc disc, Map<String, byte[]> mod, String geoPath, int maxTexturesKb, Consumer<String> log) throws Failure, IOException {
         String car = carName(geoPath);
@@ -2729,6 +2754,9 @@ final class CarConverter {
         shrinkTextures(tex, maxTexturesKb * 1024, log);
         pack.textures = buildTextures(tex, disc.load("CARS\\GALLARDO\\TEXTURES.BIN"), car);
 
+        // Keep the original non-geometry assets intact. They are not blindly injected into the Xbox archive:
+        // PC Binary .end operations and Unlimiter settings need explicit translation before they are safe to apply.
+        pack.sourceAssets = sourceAssetArchive(mod);
         pack.manufacturer = "LAMBORGHINI";
         String ci = findFile(mod, "cartypeinfo[^/]*\\.bin");
         if (ci != null) {
