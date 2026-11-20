@@ -3091,6 +3091,8 @@ final class CarConverter {
                 if (previous != null && !Arrays.equals(previous, bytes))
                     throw new IOException("conflicting GIN payloads for " + gamePath);
                 result.sourcePaths.add(found.toLowerCase(Locale.ROOT));
+                String mappedAlias = (root + destination).toLowerCase(Locale.ROOT);
+                if (folded.containsKey(mappedAlias)) result.sourcePaths.add(mappedAlias);
                 log.accept(car.car + ": validated GIN registered in Xbox ZDIR: " + gamePath
                         + " (" + bytes.length + " bytes, " + inspected.sampleRate + " Hz)");
             }
@@ -3386,8 +3388,9 @@ final class CarConverter {
         for (Kept k : kept) {
             RuntimeAssets runtime = mappedGinAssets(k, log);
             for (Map.Entry<String, byte[]> asset : runtime.files.entrySet()) {
-                byte[] previous = (byte[]) files.putIfAbsent(asset.getKey(), asset.getValue());
-                if (previous != null && !Arrays.equals(previous, asset.getValue()))
+                Object previous = files.putIfAbsent(asset.getKey(), asset.getValue());
+                if (previous != null && (!(previous instanceof byte[])
+                        || !Arrays.equals((byte[]) previous, asset.getValue())))
                     throw new Failure(Failure.Reason.UNSUPPORTED,
                             "conflicting runtime asset path: " + asset.getKey());
             }
