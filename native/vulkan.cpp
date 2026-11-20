@@ -197,6 +197,37 @@ float4 psmain(O i) : SV_Target {
     }
     c = (c - 0.5) * grade.x + 0.5;
     c *= grade.yzw;
+
+    // Material-aware pixel grading. Xbox draw calls do not expose semantic material labels,
+    // so use soft colour/luma masks rather than brittle texture-address guesses. The masks
+    // are deliberately overlapping and feathered to avoid visible segmentation halos.
+    float materialLuma = Luma(max(c, 0.0));
+    float cMin = min(c.r, min(c.g, c.b));
+    float cMax = max(c.r, max(c.g, c.b));
+    float chroma = cMax - cMin;
+    float skyMask = smoothstep(0.015, 0.105, c.b - max(c.r, c.g) * 0.82) *
+                    smoothstep(0.34, 0.72, materialLuma);
+    float foliageMask = smoothstep(0.025, 0.13, c.g - max(c.r, c.b) * 0.88) *
+                        (1.0 - smoothstep(0.72, 0.94, materialLuma));
+    float paintMask = smoothstep(0.10, 0.24, chroma) *
+                      smoothstep(0.12, 0.28, materialLuma) *
+                      (1.0 - smoothstep(0.88, 0.98, materialLuma));
+    float roadMask = (1.0 - smoothstep(0.035, 0.12, chroma)) *
+                     smoothstep(0.055, 0.16, materialLuma) *
+                     (1.0 - smoothstep(0.58, 0.78, materialLuma));
+    float sunMask = smoothstep(0.62, 0.91, materialLuma) *
+                    smoothstep(0.015, 0.12, c.r - c.b * 0.78);
+    float3 materialLumaRgb = materialLuma.xxx;
+    float3 materialChroma = c - materialLumaRgb;
+    // Cars/paint: richer but not neon; foliage: stronger natural greens; sky: cleaner blue.
+    c += materialChroma * paintMask * 0.105;
+    c.g += foliageMask * 0.018;
+    c.b += skyMask * 0.022;
+    // Asphalt gains restrained neutral definition; sunlight keeps a warm shoulder without clipping.
+    c = lerp(c, (c - 0.48) * 1.025 + 0.48, roadMask * 0.55);
+    c.r += sunMask * 0.012;
+    c.g += sunMask * 0.004;
+
     int weatherMode = (int)weather.x;
     float weatherState = weatherMode == 1 ? saturate(weather.y) : float(weatherMode - 2);
     float3 ungradedColor = c;
@@ -249,11 +280,14 @@ float4 psmain(O i) : SV_Target {
         float luma = Luma(c);
         c = lerp(luma.xxx, c, saturation);
         c = (c - 0.48) * contrast + 0.48;
-        // Smooth shoulder: compress highlights progressively, preserving bright paint and sky detail.
-        float3 highlight = max(c - 0.68, 0.0);
-        c -= highlight * (0.22 + 0.08 * saturate((c - 0.68) / 0.32));
-        float shadowMask = 1.0 - smoothstep(0.015, 0.24, sceneLuma);
+        // Smooth shoulder and toe: retain bright paint/sun detail and open shadows without grey haze.
+        float3 highlight = max(c - 0.70, 0.0);
+        c -= highlight * (0.18 + 0.07 * saturate((c - 0.70) / 0.30));
+        float shadowMask = 1.0 - smoothstep(0.012, 0.22, sceneLuma);
         c += shadowMask * shadowLift;
+        // Fine, restrained local contrast: stronger in midtones, fades in deep shadows/highlights.
+        float midMask = smoothstep(0.08, 0.24, sceneLuma) * (1.0 - smoothstep(0.72, 0.94, sceneLuma));
+        c = lerp(c, (c - 0.46) * 1.018 + 0.46, midMask);
     }
     c = lerp(ungradedColor, c, saturate(weather.z));
     c = saturate(c) * opts.w;
