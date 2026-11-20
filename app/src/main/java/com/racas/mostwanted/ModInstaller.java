@@ -83,9 +83,10 @@ final class ModInstaller {
                 k.logoFormat = Integer.parseInt(l.get(5));
                 k.geometry = new File(d, GEOMETRY);
                 k.textures = new File(d, TEXTURES);
-                File script = new File(d, SCRIPT), logo = new File(d, LOGO);
+                File script = new File(d, SCRIPT), logo = new File(d, LOGO), assets = new File(d, SOURCE_ASSETS);
                 if (script.exists()) k.script = Files.readAllBytes(script.toPath());
                 if (logo.exists()) k.logo = Files.readAllBytes(logo.toPath());
+                if (assets.exists()) k.sourceAssets = assets;
                 if (k.geometry.exists() && k.textures.exists()) out.add(k);
             } catch (IOException | RuntimeException e) {
                 // half written: it is not a car, and the next install of it writes it again
@@ -198,7 +199,7 @@ final class ModInstaller {
 
     // what the garage's cars were last built with. A converter fix that kept cars need too bumps it (2: reflection flags by
     // shader, fitGeometry), and the Mods Loader offers to build them again once
-    static final int BUILD = 4;
+    static final int BUILD = 5;
     private static final String BUILT = ".built";
 
     static boolean outdated() {
