@@ -61,4 +61,30 @@ public class CarConverterBinaryPackageTest {
         assertSame(sound, resolved.get("Assets/SOUND/ENGINE/GIN_Flip_Car.gin"));
         assertTrue(CarConverter.wanted("SOUND/ENGINE/GIN_Flip_Car.gin"));
     }
+    @Test public void keepsArchiveRootInstallAttributesBesideBinaryCarsFolder() throws Exception {
+        File root = Files.createTempDirectory("binary-root-scripts").toFile();
+        Map<String, File> source = new LinkedHashMap<>();
+        String[] paths = {
+                "Binary/Cars/FLIPCAR/GEOMETRY.BIN",
+                "Binary/Cars/FLIPCAR/TEXTURES.BIN",
+                "Install_Attributes",
+                "FnF Flip Car.nfsms",
+                "Assets/Flip_Car_Unlimiter_Data"
+        };
+        for (int i = 0; i < paths.length; i++) {
+            File file = new File(root, "asset-" + i);
+            Files.write(file.toPath(), ("asset-" + i).getBytes(StandardCharsets.UTF_8));
+            source.put(paths[i], file);
+        }
+
+        Map<String, byte[]> carFiles = CarConverter.carFiles(
+                source, "Binary/Cars/FLIPCAR/GEOMETRY.BIN");
+
+        assertNotNull("root-level VltEd install script must be retained", carFiles.get("Install_Attributes"));
+        assertNotNull("nfsms wrapper is retained as metadata, not selected as VaultEd", carFiles.get("FnF Flip Car.nfsms"));
+        assertNotNull("companion Unlimiter assets must be retained", carFiles.get("Assets/Flip_Car_Unlimiter_Data"));
+        assertNotNull(carFiles.get("Binary/Cars/FLIPCAR/GEOMETRY.BIN"));
+        assertNotNull(carFiles.get("Binary/Cars/FLIPCAR/TEXTURES.BIN"));
+    }
+
 }
