@@ -51,7 +51,7 @@ def read_directory(f, base, sector, size, image_size=None):
             raise ValueError("truncated XDVDFS directory entry")
         name = table[at + 14:end].decode("latin-1")
         key = name.casefold()
-        if not name or name in (".", "..") or "/" in name or "\\\\" in name:
+        if not name or name in (".", "..") or "/" in name or "\\" in name:
             raise ValueError("invalid XDVDFS entry name")
         if key in entries:
             raise ValueError("duplicate XDVDFS entry name")
@@ -82,7 +82,7 @@ def open_volume(f):
 
 
 def resolve_file(f, base, root_sector, root_size, path, image_size):
-    parts = [p for p in path.replace("/", "\\\\").split("\\\\") if p and p != "."]
+    parts = [p for p in path.replace("/", "\\").split("\\") if p and p != "."]
     if not parts or any(p == ".." for p in parts):
         raise ValueError("path must stay inside the Xbox disc")
 
