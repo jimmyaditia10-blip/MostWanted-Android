@@ -130,11 +130,13 @@ final class ModArchive {
         if (total[0] > MAX_ALL) throw new IOException("the archive's files are too large");
         if (spool.getUsableSpace() < data.length + ROOM) throw new IOException("not enough storage left on the phone");
         if (out.size() % 20 == 19) progress.accept("read " + (out.size() + 1));
+        String key = clean(name);
+        if (out.containsKey(key)) throw new IOException("duplicate archive path: " + key);
         File f = new File(spool, String.valueOf(out.size()));
         try (FileOutputStream o = new FileOutputStream(f)) {
             o.write(data);
         }
-        out.put(clean(name), f);
+        out.put(key, f);
     }
 
     private interface Chunk {
