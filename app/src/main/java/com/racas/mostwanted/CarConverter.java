@@ -2035,6 +2035,21 @@ final class CarConverter {
             return colls.containsKey(pair(attribKey(cls), attribKey(node)));
         }
 
+        // Remove a node from the VLT index. Its old payload is left unreferenced in NtaD;
+        // compacting NtaD would invalidate the VLT/bin fixups and is deliberately avoided.
+        String deleteNode(String cls, String node) {
+            long key = pair(attribKey(cls), attribKey(node));
+            Integer at = colls.remove(key);
+            if (at == null) return "node does not exist";
+            boolean removed = rows.removeIf(row -> row[1] == COLL_ROW && row[4] == at);
+            removed |= newRows.removeIf(row -> row[1] == COLL_ROW && row[4] == at);
+            if (!removed) {
+                colls.put(key, at);
+                return "node index row not found";
+            }
+            return null;
+        }
+
         private int[] allFix(int off) {
             int[] f = newFixVltAt.get(off);
             return f != null ? f : fixVlt.get(off);
@@ -2405,6 +2420,10 @@ final class CarConverter {
                 }
                 String why = v.resizeArray(cls, w[2], w[3], count);
                 if (why != null) skipped.merge("resize " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
+                else done++;
+            } else if (op.equals("delete_node") && w.length >= 3) {
+                String why = v.deleteNode(cls, w[2]);
+                if (why != null) skipped.merge("delete " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
                 else done++;
             } else if (op.equals("add_field") && w.length > 3) {
                 skipped.merge(op + " " + cls + "." + w[3], 1, Integer::sum);
