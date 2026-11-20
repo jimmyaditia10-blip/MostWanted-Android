@@ -251,24 +251,93 @@ final class ModInstaller {
                 for (Map.Entry<String, byte[]> e : built.files.entrySet())
                     if (e.getValue() != null) write(new File(work, e.getKey().replace('/', '_')), e.getValue());
             }
-            stopGame(context);
-            Set<String> before = listedKeys();
-            removeFiles(dir);
+            // Validate every staged output before touching the currently installed set.
             if (built != null) {
-                File nfs = new File(dir, "NFS");
-                if (!nfs.isDirectory() && !nfs.mkdirs()) throw new IOException("cannot write to " + nfs);
                 for (String name : built.files.keySet()) {
-                    if (!name.equals(ZDIR)) move(new File(work, name.replace('/', '_')), new File(dir, name));
+                    File staged = new File(work, name.replace('/', '_'));
+                    if (!staged.isFile()) throw new IOException("staged output is missing: " + name);
+                    if (staged.length() == 0) throw new IOException("staged output is empty: " + name);
                 }
             }
-            noteRemoved(before, listedKeys());
-            if (built != null) move(new File(work, ZDIR.replace('/', '_')), new File(dir, ZDIR));
-            write(new File(new File(dir, GARAGE), BUILT), (BUILD + "\n").getBytes(StandardCharsets.US_ASCII));
+            stopGame(context);
+            Set<String> before = listedKeys();
+            File backup = new File(dir, ".previous");
+            deleteTree(backup);
+            if (!backup.mkdirs()) throw new IOException("cannot create rollback directory");
+            backupGeneratedFiles(dir, backup);
+            try {
+                removeFiles(dir);
+                if (built != null) {
+                    File nfs = new File(dir, "NFS");
+                    if (!nfs.isDirectory() && !nfs.mkdirs()) throw new IOException("cannot write to " + nfs);
+                    for (String name : built.files.keySet()) {
+                        if (!name.equals(ZDIR)) move(new File(work, name.replace('/', '_')), new File(dir, name));
+                    }
+                    // ZDIR is the commit marker: publish it only after every referenced archive is in place.
+                    move(new File(work, ZDIR.replace('/', '_')), new File(dir, ZDIR));
+                }
+                write(new File(new File(dir, GARAGE), BUILT), (BUILD + "\n").getBytes(StandardCharsets.US_ASCII));
+                noteRemoved(before, listedKeys());
+                deleteTree(backup);
+            } catch (Exception installFailure) {
+                removeFiles(dir);
+                restoreGeneratedFiles(backup, dir);
+                throw installFailure;
+            }
         } finally {
             File[] left = work.listFiles();
             if (left != null) for (File f : left) f.delete();
             work.delete();
         }
+    }
+
+    // Copy the complete generated set before replacement so a failed move never leaves a half-installed mod set.
+    private static void backupGeneratedFiles(File dir, File backup) throws IOException {
+        List<String> names = new ArrayList<>();
+        names.add(ZDIR);
+        names.add(LIST);
+        names.add(TYPES);
+        names.add("car_name.dxt");
+        File[] logos = dir.listFiles((d, n) -> n.matches("name_[0-9a-f]{8}\\.dxt"));
+        if (logos != null) for (File f : logos) names.add(f.getName());
+        File nfs = new File(dir, "NFS");
+        File[] archives = nfs.listFiles((d, n) -> n.toUpperCase(Locale.ROOT).matches("ZZDATA\\d+\\.BIN"));
+        if (archives != null) for (File f : archives) names.add("NFS/" + f.getName());
+        for (String name : names) {
+            File from = new File(dir, name), to = new File(backup, name);
+            if (!from.isFile()) continue;
+            File parent = to.getParentFile();
+            if (!parent.isDirectory() && !parent.mkdirs()) throw new IOException("cannot back up " + name);
+            Files.copy(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void restoreGeneratedFiles(File backup, File dir) throws IOException {
+        if (!backup.isDirectory()) return;
+        File[] children = backup.listFiles();
+        if (children == null) return;
+        for (File child : children) restoreTree(child, backup, dir);
+    }
+
+    private static void restoreTree(File source, File root, File destinationRoot) throws IOException {
+        String relative = root.toPath().relativize(source.toPath()).toString();
+        File destination = new File(destinationRoot, relative);
+        if (source.isDirectory()) {
+            if (!destination.isDirectory() && !destination.mkdirs()) throw new IOException("cannot restore " + relative);
+            File[] children = source.listFiles();
+            if (children != null) for (File child : children) restoreTree(child, root, destinationRoot);
+        } else {
+            File parent = destination.getParentFile();
+            if (!parent.isDirectory() && !parent.mkdirs()) throw new IOException("cannot restore " + relative);
+            Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void deleteTree(File file) throws IOException {
+        if (!file.exists()) return;
+        File[] children = file.listFiles();
+        if (children != null) for (File child : children) deleteTree(child);
+        if (!file.delete()) throw new IOException("cannot delete " + file);
     }
 
     // only the names this writes: the folder may hold what the player put there
