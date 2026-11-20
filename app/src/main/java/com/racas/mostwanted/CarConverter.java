@@ -2345,10 +2345,13 @@ final class CarConverter {
         int done = 0;
         for (String line : latin(script, 0, script.length).split("\n")) {
             String t = line.trim();
-            if (t.isEmpty()) continue;
+            if (t.isEmpty() || t.startsWith("#") || t.startsWith("//")) continue;
             String[] w = t.split("\\s+");
             String op = w[0], cls = w.length > 1 ? w[1] : "";
-            if (cls.equals("emitterdata") || cls.equals("emittergroup")) continue;
+            if (cls.equals("emitterdata") || cls.equals("emittergroup")) {
+                skipped.merge("unsupported " + op + " " + cls, 1, Integer::sum);
+                continue;
+            }
             Vault v = cls.equals("frontend") ? fe : main;
             if (op.equals("copy_node") && w.length >= 5) {
                 if (!v.has(cls, w[2])) {
@@ -2399,6 +2402,10 @@ final class CarConverter {
                 else done++;
             } else if (op.equals("add_field") && w.length > 3) {
                 skipped.merge(op + " " + cls + "." + w[3], 1, Integer::sum);
+            } else {
+                // Never silently discard an operation: unsupported VltEd commands can
+                // carry handling, sound, lighting, or upgrade behavior required by a mod.
+                skipped.merge("unsupported command " + op, 1, Integer::sum);
             }
         }
         log.accept("vault: " + done + " script lines applied");
