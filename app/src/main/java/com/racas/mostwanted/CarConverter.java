@@ -2707,6 +2707,58 @@ final class CarConverter {
     private static final Pattern LOOSE_GEO = Pattern.compile("(.*/)?([^/]+)/geometry\\.bin", Pattern.CASE_INSENSITIVE);
     private static final Pattern BINARY_ROOT = Pattern.compile("(.*/)binary/.*", Pattern.CASE_INSENSITIVE);
 
+    // Resolve Binary's declared move_file sources to their in-game car paths before
+    // discovery. Some add-ons (notably the FnF Flip Car package) ship extensionless
+    // Assets/Flip_Car_Geometry and Assets/Flip_Car_Textures rather than a CARS folder.
+    // The .end install script is the authoritative mapping from those payload names.
+    static Map<String, File> resolveBinaryFiles(Map<String, File> files, Consumer<String> log) throws IOException {
+        Map<String, File> resolved = new LinkedHashMap<>(files);
+        for (Map.Entry<String, File> script : files.entrySet()) {
+            if (!script.getKey().toLowerCase(Locale.ROOT).endsWith(".end")) continue;
+            byte[] raw = Files.readAllBytes(script.getValue().toPath());
+            String body = latin(raw, 0, raw.length);
+            int slash = script.getKey().lastIndexOf('/');
+            String packageRoot = slash < 0 ? "" : script.getKey().substring(0, slash + 1);
+            for (String line : body.split("\\r?\\n")) {
+                List<String> words = endTokens(line.trim());
+                if (words.size() != 6 || !words.get(0).equalsIgnoreCase("move_file")) continue;
+                String destination = words.get(5).replace((char) 92, '/');
+                String lowerDestination = destination.toLowerCase(Locale.ROOT);
+                if (!lowerDestination.endsWith("/geometry.bin") && !lowerDestination.equals("geometry.bin")
+                        && !lowerDestination.endsWith("/textures.bin") && !lowerDestination.equals("textures.bin")) continue;
+                String source = words.get(4).replace((char) 92, '/');
+                String wanted = (packageRoot + source).toLowerCase(Locale.ROOT);
+                String base = source.substring(source.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+                String found = null;
+                for (String candidate : files.keySet()) {
+                    String lower = candidate.toLowerCase(Locale.ROOT);
+                    if (lower.equals(wanted) || lower.equals(source.toLowerCase(Locale.ROOT))) {
+                        found = candidate;
+                        break;
+                    }
+                    if (lower.endsWith("/" + base) || lower.equals(base)) {
+                        if (found != null) {
+                            found = null; // ambiguous basename: never bind the wrong car asset
+                            break;
+                        }
+                        found = candidate;
+                    }
+                }
+                if (found == null) {
+                    log.accept("Binary move_file source not resolved: " + source + " -> " + destination);
+                    continue;
+                }
+                String alias = packageRoot + destination;
+                File previous = resolved.get(alias);
+                if (previous != null && !previous.equals(files.get(found)))
+                    throw new IOException("conflicting Binary car asset mapping: " + alias);
+                resolved.put(alias, files.get(found));
+                log.accept("Binary car asset: " + found + " -> " + alias);
+            }
+        }
+        return resolved;
+    }
+
     // the cars in an archive, each by the path of its GEOMETRY.BIN. Under CARS when there are any; else any folder that has
     // a TEXTURES.BIN beside its GEOMETRY.BIN
     static List<String> carPaths(Collection<String> paths) {
