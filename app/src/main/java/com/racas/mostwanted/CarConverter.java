@@ -2799,12 +2799,17 @@ final class CarConverter {
         Map<String, Set<String>> iniValues = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, Integer> endCommands = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, Integer> endTargets = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        List<String> pendingPaths = new ArrayList<>();
         try (ZipInputStream zip = new ZipInputStream(new FileInputStream(car.sourceAssets))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
                 String path = entry.getName().replace((char) 92, '/');
                 String lower = path.toLowerCase(Locale.ROOT);
+                // Geometry and texture containers have dedicated Xbox converters. Other retained source
+                // entries must be accounted for explicitly instead of disappearing from the report.
+                boolean convertedContainer = lower.endsWith("/geometry.bin") || lower.endsWith("/textures.bin");
+                if (!convertedContainer) pendingPaths.add(path);
                 int dot = lower.lastIndexOf('.');
                 String ext = dot >= 0 ? lower.substring(dot) : "[no extension]";
                 types.merge(ext, 1, Integer::sum);
@@ -2880,6 +2885,13 @@ final class CarConverter {
             first = false;
         }
         log.accept(summary.toString());
+        if (!pendingPaths.isEmpty()) {
+            log.accept(car.car + ": source entries not yet mapped to Xbox runtime files (" + pendingPaths.size() + "):");
+            int shown = Math.min(80, pendingPaths.size());
+            for (int i = 0; i < shown; i++) log.accept("  pending: " + pendingPaths.get(i));
+            if (pendingPaths.size() > shown)
+                log.accept("  ... " + (pendingPaths.size() - shown) + " more retained source entries");
+        }
         if (!iniValues.isEmpty()) {
             List<String> values = new ArrayList<>();
             for (Map.Entry<String, Set<String>> e : iniValues.entrySet())
