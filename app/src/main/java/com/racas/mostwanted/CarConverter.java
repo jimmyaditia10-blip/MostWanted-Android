@@ -2714,7 +2714,7 @@ final class CarConverter {
                 if (!(lower.endsWith(".end") || lower.endsWith(".nfsms") || lower.endsWith(".ini")
                         || lower.endsWith(".gin") || lower.endsWith(".wav") || lower.endsWith(".fng")
                         || lower.endsWith(".dds") || lower.contains("/carparts/"))) continue;
-                ZipEntry entry = new ZipEntry(name.replace('\\\\', '/'));
+                ZipEntry entry = new ZipEntry(name.replace((char) 92, '/'));
                 entry.setTime(0L);
                 zip.putNextEntry(entry);
                 zip.write(mod.get(name));
