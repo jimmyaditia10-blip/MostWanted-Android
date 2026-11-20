@@ -242,7 +242,7 @@ float4 psmain(O i) : SV_Target {
                                Tap(uv - float2(detailStep.x, 0)) +
                                Tap(uv + float2(0, detailStep.y)) +
                                Tap(uv - float2(0, detailStep.y))) * 0.25;
-    float3 textureDetail = c - detailNeighbours;
+    float3 textureDetail = Tap(uv) - detailNeighbours;
     float detailGate = smoothstep(0.075, 0.22, materialLuma) *
                        (1.0 - smoothstep(0.82, 0.96, materialLuma));
     c += textureDetail * (0.075 * detailGate * materialGradeStrength);
@@ -290,20 +290,20 @@ float4 psmain(O i) : SV_Target {
             exposure = 1.012;
             toneTint = float3(1.012, 1.006, 0.994);
         } else if (weatherState == 1.0) { // rain
-            contrast = 1.052;
+            contrast = 1.040;
             saturation = 1.038;
             exposure = 0.998;
             toneTint = float3(0.994, 1.004, 1.018);
             shadowLift = 0.009;
         } else if (weatherState == 2.0) { // cloudy
             contrast = 1.028;
-            saturation = 1.045;
+            saturation = 1.038;
             exposure = 1.018;
             toneTint = float3(1.006, 1.010, 1.014);
             shadowLift = 0.012;
         } else if (weatherState == 3.0) { // sunset
             contrast = 1.034;
-            saturation = 1.065;
+            saturation = 1.052;
             exposure = 1.004;
             toneTint = float3(1.028, 1.012, 0.978);
             daylightMix = 0.20;
