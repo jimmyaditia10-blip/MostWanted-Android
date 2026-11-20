@@ -2766,11 +2766,8 @@ final class CarConverter {
             List<String> names = new ArrayList<>(mod.keySet());
             names.sort(String.CASE_INSENSITIVE_ORDER);
             for (String name : names) {
-                String lower = name.toLowerCase(Locale.ROOT);
-                if (lower.endsWith("/geometry.bin") || lower.endsWith("/textures.bin")) continue;
-                if (!(lower.endsWith(".end") || lower.endsWith(".nfsms") || lower.endsWith(".ini")
-                        || lower.endsWith(".gin") || lower.endsWith(".wav") || lower.endsWith(".fng")
-                        || lower.endsWith(".dds") || lower.contains("/carparts/"))) continue;
+                // Keep every original input, including the PC geometry and texture packs. Converted
+                // Xbox assets are built separately; this archive is the lossless source for later handlers.
                 ZipEntry entry = new ZipEntry(name.replace((char) 92, '/'));
                 entry.setTime(0L);
                 zip.putNextEntry(entry);
