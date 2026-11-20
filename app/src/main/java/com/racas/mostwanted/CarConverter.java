@@ -2728,9 +2728,20 @@ final class CarConverter {
                 List<String> words = endTokens(line.trim());
                 if (words.size() != 6 || !words.get(0).equalsIgnoreCase("move_file")) continue;
                 String destination = words.get(5).replace((char) 92, '/');
-                String lowerDestination = destination.toLowerCase(Locale.ROOT);
-                if (!lowerDestination.endsWith("/geometry.bin") && !lowerDestination.equals("geometry.bin")
-                        && !lowerDestination.endsWith("/textures.bin") && !lowerDestination.equals("textures.bin")) continue;
+                // Resolve every Binary move_file payload, not just the two primary car
+                // containers. Sound, logos, scripts and other assets need an explicit
+                // source-to-target mapping before a later Xbox handler can translate them.
+                // Reject traversal rather than creating an alias outside this package.
+                String normalizedDestination = destination.replaceAll("/+", "/");
+                for (String part : normalizedDestination.split("/")) {
+                    if (part.equals("..") || part.equals(".")) {
+                        throw new IOException("unsafe Binary move_file destination: " + destination);
+                    }
+                }
+                if (normalizedDestination.isEmpty() || normalizedDestination.startsWith("/")) {
+                    throw new IOException("invalid Binary move_file destination: " + destination);
+                }
+                destination = normalizedDestination;
                 String source = words.get(4).replace((char) 92, '/');
                 String wanted = (packageRoot + source).toLowerCase(Locale.ROOT);
                 String base = source.substring(source.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
