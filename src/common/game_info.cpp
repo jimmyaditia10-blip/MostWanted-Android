@@ -48,6 +48,7 @@ void Load(const void* table) {
     o.red_gain = std::clamp(t["graphics_red"].value_or(o.red_gain), 0.5f, 1.5f);
     o.green_gain = std::clamp(t["graphics_green"].value_or(o.green_gain), 0.5f, 1.5f);
     o.blue_gain = std::clamp(t["graphics_blue"].value_or(o.blue_gain), 0.5f, 1.5f);
+    o.color_grade = std::clamp(t["graphics_color_grade"].value_or(o.color_grade), 0.0f, 1.0f);
     o.redux_weather = uint32_t(std::clamp<int64_t>(t["redux_weather"].value_or(int64_t(o.redux_weather)), 0, 5));
     if (const toml::table* keys = t["keys"].as_table())
         for (auto&& [id, value] : *keys)
@@ -75,6 +76,7 @@ void Save(void* table) {
     t.insert("graphics_red", o.red_gain);
     t.insert("graphics_green", o.green_gain);
     t.insert("graphics_blue", o.blue_gain);
+    t.insert("graphics_color_grade", o.color_grade);
     t.insert("redux_weather", int64_t(o.redux_weather));
     toml::table keys;
     for (const auto& [id, value] : o.keys) keys.insert(id, value);

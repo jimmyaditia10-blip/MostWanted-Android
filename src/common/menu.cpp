@@ -823,6 +823,7 @@ void DrawGraphics(float em) {
     GraphicsStep("BRIGHTNESS", o.brightness, 0.50f, 1.50f, 0.05f);
     GraphicsStep("CONTRAST", o.contrast, 0.50f, 1.50f, 0.05f);
     GraphicsStep("SHARPNESS", o.sharpness, 0.00f, 1.50f, 0.05f);
+    GraphicsStep("COLOR GRADING", o.color_grade, 0.00f, 1.00f, 0.05f);
     GraphicsStep("RED INTENSITY", o.red_gain, 0.50f, 1.50f, 0.05f);
     GraphicsStep("GREEN INTENSITY", o.green_gain, 0.50f, 1.50f, 0.05f);
     GraphicsStep("BLUE INTENSITY", o.blue_gain, 0.50f, 1.50f, 0.05f);
@@ -832,6 +833,7 @@ void DrawGraphics(float em) {
         o.contrast = 1.0f;
         o.sharpness = 0.35f;
         o.red_gain = o.green_gain = o.blue_gain = 1.0f;
+        o.color_grade = 1.0f;
         Changed();
     }
 }

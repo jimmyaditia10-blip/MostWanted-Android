@@ -36,6 +36,7 @@ struct Options {
     float red_gain = 1.0f;  // independent RGB channel gain
     float green_gain = 1.0f;
     float blue_gain = 1.0f;
+    float color_grade = 1.0f;  // strength of the unified weather color grade, 0 to 1
     uint32_t redux_weather = 0;  // 0 off, 1 automatic, 2 clear, 3 rain, 4 cloudy, 5 sunset
     uint32_t anti_aliasing = 0;  // kAaOff, kAaFxaa or kAaSsaa
     uint32_t aspect_ratio = 0;  // the frame's shape in hundredths (133 is 4:3), 0 the whole screen; common/aspect.h

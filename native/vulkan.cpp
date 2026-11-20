@@ -199,6 +199,7 @@ float4 psmain(O i) : SV_Target {
     c *= grade.yzw;
     int weatherMode = (int)weather.x;
     float weatherState = weatherMode == 1 ? saturate(weather.y) : float(weatherMode - 2);
+    float3 ungradedColor = c;
     if (weatherMode > 0) {
         // Softer scene-adaptive grade: restrained saturation, gentle contrast and natural highlight retention.
         float sceneLuma = Luma(max(c, 0.0));
@@ -254,6 +255,7 @@ float4 psmain(O i) : SV_Target {
         float shadowMask = 1.0 - smoothstep(0.015, 0.24, sceneLuma);
         c += shadowMask * shadowLift;
     }
+    c = lerp(ungradedColor, c, saturate(weather.z));
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
     c *= post.w;  // player brightness, applied after the game's gamma ramp
@@ -4323,6 +4325,7 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
         const float weatherTarget = float(game::g_weather_state.load(std::memory_order_relaxed));
         weatherBlend += (weatherTarget - weatherBlend) * (1.0f - std::exp(-weatherDt * 2.8f));
         c[21] = weatherBlend;
+        c[22] = visual.color_grade;
         c[24] = game::g_visual_tint_r.load(std::memory_order_relaxed);
         c[25] = game::g_visual_tint_g.load(std::memory_order_relaxed);
         c[26] = game::g_visual_tint_b.load(std::memory_order_relaxed);
