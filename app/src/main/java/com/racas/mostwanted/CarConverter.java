@@ -2447,9 +2447,13 @@ final class CarConverter {
                     skipped.merge("update of " + cls + " " + node, 1, Integer::sum);
                     continue;
                 }
-                String why = v.setValue(cls, node, name, index, w[4], w[5]);
-                if (why != null) skipped.merge(cls + "." + name + ": " + why, 1, Integer::sum);
-                else done++;
+                boolean updated = false;
+                for (int pairAt = 4; pairAt + 1 < w.length; pairAt += 2) {
+                    String why = v.setValue(cls, node, name, index, w[pairAt], w[pairAt + 1]);
+                    if (why != null) skipped.merge(cls + "." + name + ": " + why, 1, Integer::sum);
+                    else updated = true;
+                }
+                if (updated) done++;
             } else if (op.equals("resize_collection") && w.length >= 5) {
                 int count;
                 try {
