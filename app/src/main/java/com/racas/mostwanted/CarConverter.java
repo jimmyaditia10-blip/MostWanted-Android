@@ -2050,6 +2050,26 @@ final class CarConverter {
             return null;
         }
 
+        // Rename the collection key in both its record and the generated row index.
+        // The node's payload and parent link remain unchanged.
+        String renameNode(String cls, String oldName, String newName) {
+            long oldKey = pair(attribKey(cls), attribKey(oldName));
+            long newKey = pair(attribKey(cls), attribKey(newName));
+            Integer at = colls.get(oldKey);
+            if (at == null) return "source node does not exist";
+            if (colls.containsKey(newKey)) return "destination node already exists";
+            put32(read(at, 4), 0, attribKey(newName));
+            write(at, ints(attribKey(newName)));
+            int[] found = null;
+            for (int[] row : rows) if (row[1] == COLL_ROW && row[4] == at) { found = row; break; }
+            if (found == null) for (int[] row : newRows) if (row[1] == COLL_ROW && row[4] == at) { found = row; break; }
+            if (found == null) return "node index row not found";
+            found[0] = attribKey(String.format("%08x/%s", attribKey(cls), newName));
+            colls.remove(oldKey);
+            colls.put(newKey, at);
+            return null;
+        }
+
         private int[] allFix(int off) {
             int[] f = newFixVltAt.get(off);
             return f != null ? f : fixVlt.get(off);
