@@ -135,7 +135,13 @@ final class TexturePacks {
                     continue;
                 }
                 File img = new File(work, String.format(Locale.ROOT, "%08x.dds", hash));
-                Files.copy(files.get(key).toPath(), img.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                byte[] raw = Files.readAllBytes(files.get(key).toPath());
+                byte[] scaled = shrink(raw);
+                if (scaled == null) {
+                    log.accept("pack " + name + ": unsupported DDS " + path);
+                    continue;
+                }
+                write(img, scaled);
                 made.add(hash);
                 if (i % 50 == 0) log.accept("pack " + name + ": " + i + "/" + maps.length());
             }
