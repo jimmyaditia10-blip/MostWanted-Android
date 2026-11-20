@@ -2305,7 +2305,10 @@ final class CarConverter {
                 Integer m = MEMBERS.get(member);
                 if (m == null) return "unknown member " + member;
                 at = m;
-                raw = member.equals("Collection") || member.equals("Class") ? ints(attribKey(text)) : packFloat(text);
+                if (member.equals("Collection") || member.equals("Class")) {
+                    try { raw = ints(referenceKey(text)); }
+                    catch (NumberFormatException e) { return "invalid " + member + " reference " + text; }
+                } else raw = packFloat(text);
             } else {
                 String type = typeNames.get(p.def[0]);
                 if (type != null && type.toLowerCase(Locale.ROOT).contains("string")) {
@@ -2435,6 +2438,16 @@ final class CarConverter {
         String[] names = {"Front", "Rear", "X", "Y", "Z", "W", "DegPerG", "DegPerSec", "MaxG", "Class", "Collection"};
         int[] at = {0, 4, 0, 4, 8, 12, 0, 4, 8, 0, 4};
         for (int i = 0; i < names.length; i++) MEMBERS.put(names[i], at[i]);
+    }
+
+    static int referenceKey(String text) {
+        String value = text.trim();
+        if (value.equals("0")) return 0;
+        if (value.regionMatches(true, 0, "0x", 0, 2)) {
+            if (value.length() < 3 || value.length() > 10) throw new NumberFormatException("reference hash");
+            return (int) Long.parseLong(value.substring(2), 16);
+        }
+        return attribKey(value);
     }
 
     private static byte[] packFloat(String text) {
