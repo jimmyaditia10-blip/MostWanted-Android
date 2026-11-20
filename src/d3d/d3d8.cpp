@@ -132,6 +132,7 @@ std::map<MaterialFingerprint, uint32_t> g_material_fingerprints;
 // Texture-pack hashes are stable identities across resource-address reuse. Refresh once per
 // diagnostic window; draw calls only perform a read-only lookup in this cached snapshot.
 std::unordered_map<uint32_t, texpacks::Bound> g_material_texture_bindings;
+uint64_t g_material_texture_generation = 0;
 bool g_trace = false;  // verbose builds: every D3D call of this frame is logged
 #define TRACE(...)     do {         if (g_trace) LOGI("trace: " __VA_ARGS__);     } while (0)
 std::map<uint32_t, uint32_t> g_walked;  // verbose builds: methods walked by first method, dwords
@@ -196,8 +197,7 @@ void LogTargets(uint32_t frame) {
     }
     // Refresh after reporting: the next sampling window can now correlate a draw's bound
     // guest texture address with the game's stable texture-pack hash.
-    uint64_t texture_generation = 0;
-    texpacks::Snapshot(g_material_texture_bindings, texture_generation);
+    texpacks::Snapshot(g_material_texture_bindings, g_material_texture_generation);
     g_target_stats.clear();
     g_material_fingerprints.clear();
 }
