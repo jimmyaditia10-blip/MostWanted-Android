@@ -1,4 +1,16 @@
-package com.racas.mostwanted;
+package c
+
+        // VltEd rename_node: clone the complete record under its new key, preserving its parent,
+        // then remove the old index entry. If removal fails, discard the clone to avoid duplicates.
+        String renameNode(String cls, String node, String renamed) {
+            long sourceKey = pair(attribKey(cls), attribKey(node));
+            if (!colls.containsKey(sourceKey)) return "node does not exist";
+            if (has(cls, renamed)) return "destination node already exists";
+            cloneNode(cls, node, renamed, null);
+            String why = deleteNode(cls, node);
+            if (why != null) deleteNode(cls, renamed);
+            return why;
+        }om.racas.mostwanted;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -2424,6 +2436,10 @@ final class CarConverter {
             } else if (op.equals("delete_node") && w.length >= 3) {
                 String why = v.deleteNode(cls, w[2]);
                 if (why != null) skipped.merge("delete " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
+                else done++;
+            } else if (op.equals("rename_node") && w.length >= 4) {
+                String why = v.renameNode(cls, w[2], w[3]);
+                if (why != null) skipped.merge("rename " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
                 else done++;
             } else if (op.equals("add_field") && w.length > 3) {
                 skipped.merge(op + " " + cls + "." + w[3], 1, Integer::sum);
