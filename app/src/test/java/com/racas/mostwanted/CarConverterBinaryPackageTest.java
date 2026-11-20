@@ -42,4 +42,23 @@ public class CarConverterBinaryPackageTest {
         assertArrayEquals(new byte[] {4, 5, 6}, carFiles.get(texPath));
         assertArrayEquals(Files.readAllBytes(strings.toPath()), carFiles.get("Assets/Install_Strings"));
     }
+
+    @Test public void resolvesBinaryMoveFileForNonGeometryAssetsAndRejectsTraversal() throws Exception {
+        File root = Files.createTempDirectory("binary-move-assets").toFile();
+        File sound = new File(root, "sound");
+        File script = new File(root, "install-strings");
+        Files.write(sound.toPath(), new byte[] {7, 8, 9});
+        Files.write(script.toPath(), (
+                "[VERSN2]\\n" +
+                "move_file override relative absolute Sound_Flip_Car_ACL SOUND\\ENGINE\\GIN_Flip_Car.gin\\n"
+        ).getBytes(StandardCharsets.ISO_8859_1));
+
+        Map<String, File> source = new LinkedHashMap<>();
+        source.put("Assets/Sound_Flip_Car_ACL", sound);
+        source.put("Assets/Install_Strings", script);
+        Map<String, File> resolved = CarConverter.resolveBinaryFiles(source, line -> {});
+
+        assertSame(sound, resolved.get("Assets/SOUND/ENGINE/GIN_Flip_Car.gin"));
+        assertTrue(CarConverter.wanted("SOUND/ENGINE/GIN_Flip_Car.gin"));
+    }
 }
