@@ -122,6 +122,10 @@ struct TargetStat {
     uint32_t size = 0, format = 0, depth = 0, draws = 0, programmable = 0, clears = 0, prims = 0;
 };
 std::map<uint32_t, TargetStat> g_target_stats;
+// Material fingerprints are diagnostic only: they identify repeatable draw-call state without
+// guessing whether a texture belongs to a car, road, building or sky.
+using MaterialFingerprint = std::array<uint32_t, 9>;
+std::map<MaterialFingerprint, uint32_t> g_material_fingerprints;
 bool g_trace = false;  // verbose builds: every D3D call of this frame is logged
 #define TRACE(...)     do {         if (g_trace) LOGI("trace: " __VA_ARGS__);     } while (0)
 std::map<uint32_t, uint32_t> g_walked;  // verbose builds: methods walked by first method, dwords
@@ -151,13 +155,35 @@ void CountTarget(bool clear, uint32_t prims = 0) {
     t.draws++;
     t.prims += prims;
     if (g_state.vs_handle & 1) t.programmable++;
+    const uint32_t tex = g_state.textures[0];
+    MaterialFingerprint fingerprint = {
+        g_state.vs_handle,
+        g_state.ps ? g_state.ps->handle : 0,
+        tex,
+        tex ? R32(tex + kContainerFormat) : 0,
+        tex ? R32(tex + kContainerSize) : 0,
+        g_state.rt.format,
+        g_state.simple[gpu::kMBlendEnable >> 2],
+        g_state.simple[gpu::kMZWriteEnable >> 2],
+        g_state.simple[gpu::kMColorWriteEnable >> 2]
+    };
+    ++g_material_fingerprints[fingerprint];
 }
 void LogTargets(uint32_t frame) {
     if (!logx::kVerbose || frame % 120) return;
     for (auto& [data, t] : g_target_stats)
         LOGI("frame %u: target %08X size %08X format %08X depth %08X: %u draws (%u shaded, %u vertices), %u clears",
              frame, data, t.size, t.format, t.depth, t.draws, t.programmable, t.prims, t.clears);
+    std::vector<std::pair<MaterialFingerprint, uint32_t>> materials(g_material_fingerprints.begin(), g_material_fingerprints.end());
+    std::sort(materials.begin(), materials.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+    const size_t report_count = std::min<size_t>(materials.size(), 12);
+    for (size_t i = 0; i < report_count; ++i) {
+        const auto& f = materials[i].first;
+        LOGI("material fp #%u draws %u vs %08X ps %08X tex %08X fmt %08X size %08X rtFmt %08X blend %08X zwrite %08X mask %08X",
+             uint32_t(i + 1), materials[i].second, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]);
+    }
     g_target_stats.clear();
+    g_material_fingerprints.clear();
 }
 void SetDev(uint32_t off, uint32_t v) { W32(kDevice + off, v); }
 
