@@ -201,6 +201,8 @@ float4 psmain(O i) : SV_Target {
     // Material-aware pixel grading. Xbox draw calls do not expose semantic material labels,
     // so use soft colour/luma masks rather than brittle texture-address guesses. The masks
     // are deliberately overlapping and feathered to avoid visible segmentation halos.
+    int weatherMode = (int)weather.x;
+    float materialGradeStrength = weatherMode > 0 ? saturate(weather.z) : 0.0;
     float materialLuma = Luma(max(c, 0.0));
     float cMin = min(c.r, min(c.g, c.b));
     float cMax = max(c.r, max(c.g, c.b));
@@ -220,15 +222,13 @@ float4 psmain(O i) : SV_Target {
     float3 materialLumaRgb = materialLuma.xxx;
     float3 materialChroma = c - materialLumaRgb;
     // Cars/paint: richer but not neon; foliage: stronger natural greens; sky: cleaner blue.
-    c += materialChroma * paintMask * 0.105;
-    c.g += foliageMask * 0.018;
-    c.b += skyMask * 0.022;
+    c += materialChroma * paintMask * 0.105 * materialGradeStrength;
+    c.g += foliageMask * 0.018 * materialGradeStrength;
+    c.b += skyMask * 0.022 * materialGradeStrength;
     // Asphalt gains restrained neutral definition; sunlight keeps a warm shoulder without clipping.
-    c = lerp(c, (c - 0.48) * 1.025 + 0.48, roadMask * 0.55);
-    c.r += sunMask * 0.012;
-    c.g += sunMask * 0.004;
-
-    int weatherMode = (int)weather.x;
+    c = lerp(c, (c - 0.48) * 1.025 + 0.48, roadMask * 0.55 * materialGradeStrength);
+    c.r += sunMask * 0.012 * materialGradeStrength;
+    c.g += sunMask * 0.004 * materialGradeStrength;
     float weatherState = weatherMode == 1 ? saturate(weather.y) : float(weatherMode - 2);
     float3 ungradedColor = c;
     if (weatherMode > 0) {
