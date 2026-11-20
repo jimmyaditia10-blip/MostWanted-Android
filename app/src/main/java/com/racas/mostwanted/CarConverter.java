@@ -2303,6 +2303,11 @@ final class CarConverter {
                 raw = member.equals("Collection") || member.equals("Class") ? ints(attribKey(text)) : packFloat(text);
             } else {
                 String type = typeNames.get(p.def[0]);
+                if (type != null && type.toLowerCase(Locale.ROOT).contains("string")) {
+                    if (p.bin < 0) return "string field is not pointer-backed";
+                    setText(p.bin, text);
+                    return null;
+                }
                 raw = packScalar(text, type == null ? "" : type, p.def[2]);
             }
             if (raw == null) return "value " + text;
@@ -2437,10 +2442,16 @@ final class CarConverter {
 
     private static byte[] packScalar(String text, String type, int size) {
         try {
-            if (type.contains("Float")) return packFloat(text);
+            if (type.contains("Float")) {
+                float value = Float.parseFloat(text);
+                if (!Float.isFinite(value)) return null;
+                return ints(Float.floatToRawIntBits(value));
+            }
             if (type.contains("Bool")) {
                 String t = text.toLowerCase(Locale.ROOT);
-                return new byte[] {(byte) (t.equals("true") || t.equals("1") ? 1 : 0)};
+                if (t.equals("true") || t.equals("1")) return new byte[] {1};
+                if (t.equals("false") || t.equals("0")) return new byte[] {0};
+                return null;
             }
             String t = text.toLowerCase(Locale.ROOT);
             if (type.contains("Int") || type.contains("Enum") || t.startsWith("0x")) {
@@ -2448,6 +2459,10 @@ final class CarConverter {
                 String digits = neg ? t.substring(1) : t;
                 BigInteger v = digits.startsWith("0x") ? new BigInteger(digits.substring(2), 16) : new BigInteger(digits);
                 if (neg) v = v.negate();
+                if (size <= 0 || size > 8) return null;
+                BigInteger min = BigInteger.ONE.shiftLeft(size * 8 - 1).negate();
+                BigInteger max = BigInteger.ONE.shiftLeft(size * 8).subtract(BigInteger.ONE);
+                if (v.compareTo(min) < 0 || v.compareTo(max) > 0) return null;
                 byte[] out = new byte[size];
                 for (int i = 0; i < size; i++) out[i] = v.shiftRight(i * 8).byteValue();
                 return out;
@@ -2497,7 +2512,10 @@ final class CarConverter {
             } else if (op.equals("update_field") && w.length >= 5) {
                 String node = w[2];
                 Matcher m = FIELD.matcher(w[3]);
-                if (!m.matches()) continue;
+                if (!m.matches()) {
+                    skipped.merge("update_field: invalid field " + w[3], 1, Integer::sum);
+                    continue;
+                }
                 String name = m.group(1);
                 int index = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
                 String member = w.length > 5 ? w[4] : null, text = w[w.length - 1];
@@ -2507,6 +2525,7 @@ final class CarConverter {
                 }
                 if (name.equals("MODEL")) {
                     v.setModel(node, text);
+                    done++;
                     continue;
                 }
                 String why = v.setValue(cls, node, name, index, member, text);
@@ -3116,7 +3135,7 @@ final class CarConverter {
     }
 
     // Binary Endscript supports quoted paths and whitespace; preserve a quoted path as one argument.
-    private static List<String> endTokens(String line) {
+    static List<String> endTokens(String line) {
         List<String> out = new ArrayList<>();
         Matcher m = Pattern.compile("\\\"([^\\\"]*)\\\"|'([^']*)'|(\\S+)").matcher(line);
         while (m.find()) out.add(m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3));
