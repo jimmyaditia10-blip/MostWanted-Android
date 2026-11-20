@@ -78,7 +78,7 @@ final class CarConverter {
     // a kept car for build: its two big files by path
     static final class Kept {
         String car, title, manufacturer;
-        File geometry, textures;
+        File geometry, textures, sourceAssets;
         byte[] script, logo;
         int logoWidth, logoHeight, logoFormat;
     }
