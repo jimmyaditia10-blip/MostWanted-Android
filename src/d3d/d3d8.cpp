@@ -177,7 +177,13 @@ void CountTarget(bool clear, uint32_t prims = 0) {
             if (!tex) return 0;
             const uint32_t data = R32(tex + kResData);
             const auto it = g_material_texture_bindings.find(data);
-            return it == g_material_texture_bindings.end() ? 0 : it->second.hash;
+            if (it == g_material_texture_bindings.end()) return 0;
+            // Guest texture addresses are recycled as the track streams assets. Match the
+            // dimensions as well as the address before trusting the previously published hash.
+            const uint32_t size = R32(tex + kContainerSize);
+            const uint32_t width = (size & 0xFFFu) + 1;
+            const uint32_t height = ((size >> 12) & 0xFFFu) + 1;
+            return width == it->second.width && height == it->second.height ? it->second.hash : 0;
         }()
     };
     ++g_material_fingerprints[fingerprint];
