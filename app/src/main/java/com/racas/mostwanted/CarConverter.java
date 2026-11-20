@@ -89,16 +89,25 @@ final class CarConverter {
         final List<String> addons = new ArrayList<>(), replaced = new ArrayList<>();
     }
 
-    private static final Pattern WANTED = Pattern.compile(
-            "(.*/)?([^/]+/(geometry|textures)\\.bin|cartypeinfo[^/]*\\.bin|[^/]*\\.nfsms|[^/]*\\.end"
-            + "|(?:.*/)?carparts/[^/]+\\.bin|(?:.*/)?unlimiterdata/[^/]+\\.ini"
-            + "|(?:.*/)?(?:secondary_logo|carselect_manufacturer)_[^/]*\\.dds"
-            + "|(?:.*/)?[^/]+\\.(gin|wav|fng))");
+    // Conversion inputs are selected by path components, not a shallow fixed-depth regex:
+    // Binary packages commonly nest CarParts and UnlimiterData several folders deep.
+    private static boolean hasPathSegment(String path, String segment) {
+        for (String part : path.split("/")) if (part.equals(segment)) return true;
+        return false;
+    }
 
     // an archive's files worth keeping for convert, its paths with / in them
     static boolean wanted(String path) {
         String p = path.replace('\\', '/').toLowerCase(Locale.ROOT);
-        return WANTED.matcher(p).matches() && !p.substring(p.lastIndexOf('/') + 1).contains("uninstall");
+        String base = p.substring(p.lastIndexOf('/') + 1);
+        if (base.contains("uninstall")) return false;
+        if (base.equals("geometry.bin") || base.equals("textures.bin")) return true;
+        if (base.startsWith("cartypeinfo") && base.endsWith(".bin")) return true;
+        if (base.endsWith(".nfsms") || base.endsWith(".end")) return true;
+        if (hasPathSegment(p, "carparts") && base.endsWith(".bin")) return true;
+        if (hasPathSegment(p, "unlimiterdata") && base.endsWith(".ini")) return true;
+        if ((base.startsWith("secondary_logo_") || base.startsWith("carselect_manufacturer_")) && base.endsWith(".dds")) return true;
+        return base.endsWith(".gin") || base.endsWith(".wav") || base.endsWith(".fng");
     }
 
     // bytes
@@ -2752,6 +2761,9 @@ final class CarConverter {
             if (!scriptPath.endsWith(".end") && !scriptName.equals("install_strings")) continue;
             byte[] raw = Files.readAllBytes(script.getValue().toPath());
             String body = latin(raw, 0, raw.length);
+            // Some Binary-generated Install_Strings files encode line breaks literally.
+            // Normalize escaped line breaks before tokenizing the command stream.
+            body = body.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n");
             int slash = script.getKey().lastIndexOf('/');
             String packageRoot = slash < 0 ? "" : script.getKey().substring(0, slash + 1);
             for (String line : body.split("\\r?\\n")) {
