@@ -1668,6 +1668,21 @@ def apply_script(main, fe, path):
                 skipped["%s.%s: %s" % (cls, name, why)] += 1
             else:
                 done += 1
+        elif op == "update_collection":
+            node, field = w[2], w[3]
+            m = re.fullmatch(r"(\\w+)(?:\\[(\\d+)\\])?", field)
+            if not m or len(w) < 6:
+                skipped["update_collection: invalid arguments"] += 1
+                continue
+            name, index = m.group(1), int(m.group(2) or 0)
+            if (attrib_key(cls), attrib_key(node)) not in v.colls:
+                skipped["update of %s %s" % (cls, node)] += 1
+                continue
+            why = v.set_value(cls, node, name, index, w[4], w[5])
+            if why:
+                skipped["%s.%s: %s" % (cls, name, why)] += 1
+            else:
+                done += 1
         elif op == "delete_node":
             why = v.delete(cls, w[2])
             if why:
