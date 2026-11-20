@@ -2714,7 +2714,12 @@ final class CarConverter {
     static Map<String, File> resolveBinaryFiles(Map<String, File> files, Consumer<String> log) throws IOException {
         Map<String, File> resolved = new LinkedHashMap<>(files);
         for (Map.Entry<String, File> script : files.entrySet()) {
-            if (!script.getKey().toLowerCase(Locale.ROOT).endsWith(".end")) continue;
+            String scriptPath = script.getKey().toLowerCase(Locale.ROOT);
+            String scriptName = scriptPath.substring(scriptPath.lastIndexOf('/') + 1);
+            // Binary packs commonly store the actual VERSN2 command stream in
+            // an extensionless Install_Strings file, while the .end file is only
+            // a VERSN1 setup descriptor.
+            if (!scriptPath.endsWith(".end") && !scriptName.equals("install_strings")) continue;
             byte[] raw = Files.readAllBytes(script.getValue().toPath());
             String body = latin(raw, 0, raw.length);
             int slash = script.getKey().lastIndexOf('/');
