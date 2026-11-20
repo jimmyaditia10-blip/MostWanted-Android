@@ -92,7 +92,8 @@ final class CarConverter {
     private static final Pattern WANTED = Pattern.compile(
             "(.*/)?([^/]+/(geometry|textures)\\.bin|cartypeinfo[^/]*\\.bin|[^/]*\\.nfsms|[^/]*\\.end"
             + "|(?:.*/)?carparts/[^/]+\\.bin|(?:.*/)?unlimiterdata/[^/]+\\.ini"
-            + "|(?:.*/)?(?:secondary_logo|carselect_manufacturer)_[^/]*\\.dds)");
+            + "|(?:.*/)?(?:secondary_logo|carselect_manufacturer)_[^/]*\\.dds"
+            + "|(?:.*/)?[^/]+\\.(gin|wav|fng))");
 
     // an archive's files worth keeping for convert, its paths with / in them
     static boolean wanted(String path) {
@@ -2775,6 +2776,19 @@ final class CarConverter {
                                         1, Integer::sum);
                         }
                     }
+                } else if (ext.equals(".gin")) {
+                    ByteArrayOutputStream data = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[8192];
+                    int n, total = 0;
+                    while ((n = zip.read(buffer)) != -1) {
+                        total += n;
+                        if (total > (32 << 20)) throw new IOException("GIN too large to audit: " + path);
+                        data.write(buffer, 0, n);
+                    }
+                    GinAudio.Result gin = GinAudio.inspect(data.toByteArray());
+                    log.accept(car.car + ": GIN " + path + ": " + gin.status + " - " + gin.reason
+                            + (gin.isValidHeader() ? ", rate=" + gin.sampleRate + ", indexes=" + gin.indexCount
+                            + ", payload=" + gin.payloadSize : ""));
                 } else {
                     byte[] buffer = new byte[8192];
                     while (zip.read(buffer) != -1) { /* drain entry */ }
