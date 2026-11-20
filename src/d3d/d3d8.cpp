@@ -17,6 +17,7 @@
 #include "common/fe_mouse.h"
 #include "common/game_font.h"
 #include "common/options.h"
+#include "common/texture_packs.h"
 #include "core/diag.h"
 #include "d3d/gpu_frame.h"
 #include "gpu/backend.h"
@@ -126,8 +127,11 @@ struct TargetStat {
 std::map<uint32_t, TargetStat> g_target_stats;
 // Material fingerprints are diagnostic only: they identify repeatable draw-call state without
 // guessing whether a texture belongs to a car, road, building or sky.
-using MaterialFingerprint = std::array<uint32_t, 9>;
+using MaterialFingerprint = std::array<uint32_t, 10>;
 std::map<MaterialFingerprint, uint32_t> g_material_fingerprints;
+// Texture-pack hashes are stable identities across resource-address reuse. Refresh once per
+// diagnostic window; draw calls only perform a read-only lookup in this cached snapshot.
+std::unordered_map<uint32_t, texpacks::Bound> g_material_texture_bindings;
 bool g_trace = false;  // verbose builds: every D3D call of this frame is logged
 #define TRACE(...)     do {         if (g_trace) LOGI("trace: " __VA_ARGS__);     } while (0)
 std::map<uint32_t, uint32_t> g_walked;  // verbose builds: methods walked by first method, dwords
@@ -167,7 +171,13 @@ void CountTarget(bool clear, uint32_t prims = 0) {
         g_state.rt.format,
         g_state.simple[gpu::kMBlendEnable >> 2],
         g_state.simple[gpu::kMZWriteEnable >> 2],
-        g_state.simple[gpu::kMColorWriteEnable >> 2]
+        g_state.simple[gpu::kMColorWriteEnable >> 2],
+        [&]() -> uint32_t {
+            if (!tex) return 0;
+            const uint32_t data = R32(tex + kResData);
+            const auto it = g_material_texture_bindings.find(data);
+            return it == g_material_texture_bindings.end() ? 0 : it->second.hash;
+        }()
     };
     ++g_material_fingerprints[fingerprint];
 }
@@ -181,9 +191,13 @@ void LogTargets(uint32_t frame) {
     const size_t report_count = std::min<size_t>(materials.size(), 12);
     for (size_t i = 0; i < report_count; ++i) {
         const auto& f = materials[i].first;
-        LOGI("material fp #%u draws %u vs %08X ps %08X tex %08X fmt %08X size %08X rtFmt %08X blend %08X zwrite %08X mask %08X",
-             uint32_t(i + 1), materials[i].second, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]);
+        LOGI("material fp #%u draws %u vs %08X ps %08X tex %08X fmt %08X size %08X rtFmt %08X blend %08X zwrite %08X mask %08X texHash %08X",
+             uint32_t(i + 1), materials[i].second, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9]);
     }
+    // Refresh after reporting: the next sampling window can now correlate a draw's bound
+    // guest texture address with the game's stable texture-pack hash.
+    uint64_t texture_generation = 0;
+    texpacks::Snapshot(g_material_texture_bindings, texture_generation);
     g_target_stats.clear();
     g_material_fingerprints.clear();
 }
