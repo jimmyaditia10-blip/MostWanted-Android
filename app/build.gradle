@@ -99,7 +99,8 @@ android {
 }
 
 // the archives add-on cars come in: ModArchive
-dependencies {\n    testImplementation "junit:junit:4.13.2"
+dependencies {
+    testImplementation "junit:junit:4.13.2"
     // 7z's LZMA; some archives' streams need the relaxed end its decoder turns on (1.21's called them corrupt)
     implementation "org.apache.commons:commons-compress:1.27.1"
     implementation "org.tukaani:xz:1.10"
