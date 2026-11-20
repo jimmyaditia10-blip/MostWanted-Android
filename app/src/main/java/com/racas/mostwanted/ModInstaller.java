@@ -199,7 +199,7 @@ final class ModInstaller {
 
     // what the garage's cars were last built with. A converter fix that kept cars need too bumps it (2: reflection flags by
     // shader, fitGeometry), and the Mods Loader offers to build them again once
-    static final int BUILD = 5;
+    static final int BUILD = 6;
     private static final String BUILT = ".built";
 
     static boolean outdated() {
