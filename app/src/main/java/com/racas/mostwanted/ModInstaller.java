@@ -31,7 +31,7 @@ import java.util.function.Consumer;
 final class ModInstaller {
     private static final String ZDIR = "NFS/ZDIR.BIN", LIST = "cars.txt", TYPES = "car_types.txt", REMOVED = "cars_removed.txt";
     private static final String GARAGE = "garage", INFO = "info.txt", GEOMETRY = "geometry.bin", TEXTURES = "textures.bin";
-    private static final String SCRIPT = "script.nfsms", LOGO = "logo.dxt";
+    private static final String SCRIPT = "script.nfsms", LOGO = "logo.dxt", SOURCE_ASSETS = "source_assets.zip";
 
     private ModInstaller() {}
 
@@ -167,10 +167,13 @@ final class ModInstaller {
         new File(dir, INFO).delete();  // not a car until it is whole
         new File(dir, SCRIPT).delete();
         new File(dir, LOGO).delete();
+        new File(dir, SOURCE_ASSETS).delete();
         write(new File(dir, GEOMETRY), pack.geometry);
         write(new File(dir, TEXTURES), pack.textures);
         if (pack.script != null) write(new File(dir, SCRIPT), pack.script);
         if (pack.logo != null) write(new File(dir, LOGO), pack.logo);
+        if (pack.sourceAssets != null && pack.sourceAssets.length > 0)
+            write(new File(dir, SOURCE_ASSETS), pack.sourceAssets);
         write(new File(dir, INFO), (pack.car + "\n" + pack.title + "\n" + pack.manufacturer + "\n" + pack.logoWidth + "\n"
                 + pack.logoHeight + "\n" + pack.logoFormat + "\n").getBytes(StandardCharsets.UTF_8));
     }
@@ -195,7 +198,7 @@ final class ModInstaller {
 
     // what the garage's cars were last built with. A converter fix that kept cars need too bumps it (2: reflection flags by
     // shader, fitGeometry), and the Mods Loader offers to build them again once
-    static final int BUILD = 3;
+    static final int BUILD = 4;
     private static final String BUILT = ".built";
 
     static boolean outdated() {
