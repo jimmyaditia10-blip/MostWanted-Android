@@ -198,56 +198,61 @@ float4 psmain(O i) : SV_Target {
     c = (c - 0.5) * grade.x + 0.5;
     c *= grade.yzw;
     int weatherMode = (int)weather.x;
-    int weatherState = weatherMode == 1 ? (int)weather.y : weatherMode - 2;
+    float weatherState = weatherMode == 1 ? saturate(weather.y) : float(weatherMode - 2);
     if (weatherMode > 0) {
-        // Redux-inspired grade: stronger tonal separation and richer colour, with a soft highlight shoulder.
-        // Keep the grade scene-aware so bright paint and sky retain detail instead of clipping to white.
+        // Softer scene-adaptive grade: restrained saturation, gentle contrast and natural highlight retention.
         float sceneLuma = Luma(max(c, 0.0));
         float3 toneTint = float3(1.0, 1.0, 1.0);
-        float contrast = 1.075;
-        float saturation = 1.13;
-        float exposure = 1.025;
-        if (weatherState == 0) { // clear: warm daylight, vivid paint, deeper road shadows
-            contrast = 1.095;
-            saturation = 1.18;
-            exposure = 1.025;
-            toneTint = float3(1.025, 1.010, 0.985);
-        } else if (weatherState == 1) { // rain: cool reflections, rich wet asphalt, defined midtones
-            contrast = 1.105;
-            saturation = 1.12;
-            exposure = 1.010;
-            toneTint = float3(0.975, 1.005, 1.045);
-        } else if (weatherState == 2) { // cloudy: neutral cinematic light, no grey wash
-            contrast = 1.075;
-            saturation = 1.10;
-            exposure = 1.035;
-            toneTint = float3(1.015, 1.020, 1.025);
+        float contrast = 1.045;
+        float saturation = 1.075;
+        float exposure = 1.012;
+        float daylightMix = 0.12;
+        float shadowLift = 0.006;
+        if (weatherMode == 1) {
+            // AUTO blends continuously between clear and rain instead of switching abruptly.
+            float rainMix = smoothstep(0.12, 0.88, weatherState);
+            contrast = lerp(1.045, 1.052, rainMix);
+            saturation = lerp(1.080, 1.045, rainMix);
+            exposure = lerp(1.012, 0.998, rainMix);
+            toneTint = lerp(float3(1.012, 1.006, 0.996), float3(0.994, 1.004, 1.018), rainMix);
+            shadowLift = lerp(0.006, 0.009, rainMix);
+        } else if (weatherState == 0.0) { // clear
+            contrast = 1.052;
+            saturation = 1.095;
+            exposure = 1.012;
+            toneTint = float3(1.012, 1.006, 0.994);
+        } else if (weatherState == 1.0) { // rain
+            contrast = 1.052;
+            saturation = 1.055;
+            exposure = 0.998;
+            toneTint = float3(0.994, 1.004, 1.018);
+            shadowLift = 0.009;
+        } else if (weatherState == 2.0) { // cloudy
+            contrast = 1.035;
+            saturation = 1.045;
+            exposure = 1.018;
+            toneTint = float3(1.006, 1.010, 1.014);
+            shadowLift = 0.012;
+        } else if (weatherState == 3.0) { // sunset
+            contrast = 1.045;
+            saturation = 1.065;
+            exposure = 1.004;
+            toneTint = float3(1.028, 1.012, 0.978);
+            daylightMix = 0.20;
         }
-        if (weatherState == 3) { // sunset: warm amber highlights with a soft cinematic rolloff
-            contrast = 1.065;
-            saturation = 1.12;
-            exposure = 1.015;
-            toneTint = float3(1.055, 1.018, 0.955);
-        }
-        // Follow the game's native Visual Look RGB ramp as it blends through the day.
+        // Blend the game's native Visual Look RGB balance subtly into the grade.
         float daylightLuma = max(dot(daylight.rgb, float3(0.299, 0.587, 0.114)), 0.05);
-        float3 daylightBalance = clamp(daylight.rgb / daylightLuma, 0.88, 1.12);
-        float daylightMix = weatherState == 3 ? 0.30 : 0.18;
+        float3 daylightBalance = clamp(daylight.rgb / daylightLuma, 0.94, 1.06);
         toneTint *= lerp(float3(1.0, 1.0, 1.0), daylightBalance, daylightMix);
-        c *= exposure;
-        c *= toneTint;
+        c *= exposure * toneTint;
         float luma = Luma(c);
         c = lerp(luma.xxx, c, saturation);
-        c = (c - 0.46) * contrast + 0.46;
-        // Gentle highlight compression protects bright bodywork and sky while preserving punchy blacks.
-        float3 highlight = max(c - 0.72, 0.0);
-        c -= highlight * 0.30;
-        // Lift only the darkest toe slightly in overcast/rain scenes to retain road and car detail.
-        {
-            float shadowMask = 1.0 - smoothstep(0.012, 0.22, sceneLuma);
-            float lift = weatherState == 1 ? 0.010 : weatherState == 2 ? 0.014 : 0.008;
-            c += shadowMask * lift;
-        }
+        c = (c - 0.48) * contrast + 0.48;
+        // Smooth shoulder: compress highlights progressively, preserving bright paint and sky detail.
+        float3 highlight = max(c - 0.68, 0.0);
+        c -= highlight * (0.22 + 0.08 * saturate((c - 0.68) / 0.32));
+        float shadowMask = 1.0 - smoothstep(0.015, 0.24, sceneLuma);
+        c += shadowMask * shadowLift;
     }
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
@@ -4309,7 +4314,15 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
         c[18] = visual.green_gain;
         c[19] = visual.blue_gain;
         c[20] = float(visual.redux_weather);
-        c[21] = float(game::g_weather_state.load(std::memory_order_relaxed));
+        // Smooth the detected weather over time; precipitation can flicker between adjacent render passes.
+        static float weatherBlend = 0.0f;
+        static auto weatherClock = std::chrono::steady_clock::now();
+        const auto weatherNow = std::chrono::steady_clock::now();
+        const float weatherDt = std::clamp(std::chrono::duration<float>(weatherNow - weatherClock).count(), 0.0f, 0.10f);
+        weatherClock = weatherNow;
+        const float weatherTarget = float(game::g_weather_state.load(std::memory_order_relaxed));
+        weatherBlend += (weatherTarget - weatherBlend) * (1.0f - std::exp(-weatherDt * 2.8f));
+        c[21] = weatherBlend;
         c[24] = game::g_visual_tint_r.load(std::memory_order_relaxed);
         c[25] = game::g_visual_tint_g.load(std::memory_order_relaxed);
         c[26] = game::g_visual_tint_b.load(std::memory_order_relaxed);
