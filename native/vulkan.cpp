@@ -198,9 +198,10 @@ float4 psmain(O i) : SV_Target {
     c = (c - 0.5) * grade.x + 0.5;
     c *= grade.yzw;
 
-    // Soft screen-space material groups. These are confidence masks, not semantic
-    // object IDs: the D3D8 frame exposes the composed image at this stage.
+    // Weather-only grading is guarded so ordinary post-processing does not pay
+    // for material masks or texture-detail taps when Redux Weather is disabled.
     int weatherMode = (int)weather.x;
+    if (weatherMode > 0) {
     // Apply color_grade once at the final blend below; using it here as well squared its strength.
     float materialGradeStrength = weatherMode > 0 ? 1.0 : 0.0;
     float3 sourceColor = max(c, 0.0);
@@ -238,15 +239,17 @@ float4 psmain(O i) : SV_Target {
 
     // Preserve source texture micro-detail: add back only a small high-frequency
     // component, gated away from deep shadows and clipped highlights.
+    // Two-tap horizontal detail estimate: halves texture fetches versus the four-neighbour
+    // cross while retaining fine asphalt/paint texture at a much lower fragment cost.
     float2 detailStep = src.xy * max(opts.z, 1.0);
-    float3 detailNeighbours = (Tap(uv + float2(detailStep.x, 0)) +
-                               Tap(uv - float2(detailStep.x, 0)) +
-                               Tap(uv + float2(0, detailStep.y)) +
-                               Tap(uv - float2(0, detailStep.y))) * 0.25;
-    float3 textureDetail = Tap(uv) - detailNeighbours;
-    float detailGate = smoothstep(0.075, 0.22, materialLuma) *
-                       (1.0 - smoothstep(0.82, 0.96, materialLuma));
-    c += textureDetail * (0.075 * detailGate * materialGradeStrength);
+    if (materialGradeStrength > 0.0) {
+        float3 detailPair = (Tap(uv + float2(detailStep.x, 0)) +
+                             Tap(uv - float2(detailStep.x, 0))) * 0.5;
+        float3 textureDetail = Tap(uv) - detailPair;
+        float detailGate = smoothstep(0.075, 0.22, materialLuma) *
+                           (1.0 - smoothstep(0.82, 0.96, materialLuma));
+        c += textureDetail * (0.055 * detailGate);
+    }
 
     float3 neutralLuma = Luma(max(c, 0.0)).xxx;
     float3 paintChroma = c - neutralLuma;
@@ -341,6 +344,7 @@ float4 psmain(O i) : SV_Target {
         c = lerp(c, (c - 0.46) * 1.018 + 0.46, midMask);
     }
     c = lerp(ungradedColor, c, saturate(weather.z));
+    }
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
     c *= post.w;  // player brightness, applied after the game's gamma ramp
