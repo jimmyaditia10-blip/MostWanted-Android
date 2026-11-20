@@ -2742,7 +2742,12 @@ final class CarConverter {
     static Map<String, byte[]> carFiles(Map<String, File> files, String geoPath) throws IOException {
         Matcher binary = BINARY_ROOT.matcher(geoPath);
         Matcher geo = geoMatch(geoPath);
-        String root = binary.matches() ? binary.group(1) : geo == null || geo.group(1) == null ? "" : geo.group(1);
+        // A Binary package may keep its car under Binary/Cars/<name> while its
+        // install scripts and companion assets live beside Binary (for example
+        // ModScript/ and Assets/). Scope to the archive's package root, not the
+        // GEOMETRY.BIN parent, or those required files are silently excluded.
+        int packageSlash = geoPath.indexOf('/');
+        String root = packageSlash < 0 ? "" : geoPath.substring(0, packageSlash + 1);
         List<String> folders = new ArrayList<>();
         for (String other : carPaths(files.keySet()))
             if (!other.equals(geoPath)) folders.add(other.substring(0, other.length() - "GEOMETRY.BIN".length()));
@@ -2757,7 +2762,7 @@ final class CarConverter {
 
     // the VltEd script for a car: named for it, else the install script, else the only one there is
     private static String findScript(Map<String, byte[]> mod, String car) {
-        Pattern p = Pattern.compile("(?:.*/)?([^/]*\\.nfsms)", Pattern.CASE_INSENSITIVE);
+        Pattern p = Pattern.compile("(?:.*/)?([^/]*(?:\\.nfsms|install_attributes))", Pattern.CASE_INSENSITIVE);
         List<String> scripts = new ArrayList<>();
         for (String k : mod.keySet()) {
             Matcher m = p.matcher(k);
@@ -2765,6 +2770,10 @@ final class CarConverter {
         }
         scripts.sort(null);
         String named = car.toLowerCase(Locale.ROOT);
+        // Some Binary packages keep VltEd commands in an extensionless
+        // Install_Attributes file; their .nfsms is only the Binary UI wrapper.
+        for (String k : scripts)
+            if (k.substring(k.lastIndexOf('/') + 1).equalsIgnoreCase("Install_Attributes")) return k;
         for (String k : scripts)
             if (k.substring(k.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT).contains(named)) return k;
         for (String k : scripts)
