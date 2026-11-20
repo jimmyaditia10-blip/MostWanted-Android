@@ -2643,6 +2643,9 @@ final class CarConverter {
             if (r[4] != 0) absBase = Math.max(absBase, (r[3] & 0xFFFFFFFFL) + (r[4] + 2047) / 2048);
         Map<Integer, int[]> recs = new TreeMap<>(Integer::compareUnsigned);
         recs.putAll(disc.recs);
+        // ZDIR addresses files by a 32-bit path hash. Two new paths with the same hash would silently
+        // replace one another in the directory while both payloads were written to the archive.
+        Map<Integer, String> addedNames = new HashMap<>();
         String archive = "NFS/ZZDATA" + last + ".BIN";
         long written = 0;
         File outFile = new File(dir, archive.replace('/', '_'));
@@ -2650,6 +2653,9 @@ final class CarConverter {
             byte[] chunkBuf = new byte[1 << 16];
             for (Map.Entry<String, Object> e : files.entrySet()) {
                 int h = bhash(e.getKey());
+                String previous = addedNames.putIfAbsent(h, e.getKey());
+                if (previous != null && !previous.equals(e.getKey()))
+                    throw new IOException("Xbox path-hash collision: " + previous + " and " + e.getKey());
                 long size;
                 if (e.getValue() instanceof byte[]) {
                     byte[] b = (byte[]) e.getValue();
@@ -2661,15 +2667,21 @@ final class CarConverter {
                         for (int r; (r = in.read(chunkBuf)) > 0; size += r) out.write(chunkBuf, 0, r);
                     }
                 }
-                int sector = (int) (written / 2048);
-                recs.put(h, new int[] {h, last, sector, (int) (absBase + sector), (int) size, -1});
+                long sectorLong = written / 2048;
+                long absoluteSector = absBase + sectorLong;
+                if (size > 0x7FFFFFFFL || sectorLong > 0x7FFFFFFFL || absoluteSector > 0xFFFFFFFFL)
+                    throw new IOException("Xbox archive offset/size exceeds ZDIR field range: " + e.getKey());
+                int sector = (int) sectorLong;
+                recs.put(h, new int[] {h, last, sector, (int) absoluteSector, (int) size, -1});
                 long padded = (size + 2047) / 2048 * 2048;
                 for (long p = size; p < padded; p++) out.write(0);
                 written += padded;
             }
         }
         for (Map.Entry<String, String> e : alias.entrySet()) {
-            int[] r = disc.recs.get(bhash(e.getValue())).clone();
+            int[] source = disc.recs.get(bhash(e.getValue()));
+            if (source == null) throw new IOException("Xbox alias source is missing from ZDIR: " + e.getValue());
+            int[] r = source.clone();
             r[0] = bhash(e.getKey());
             recs.put(r[0], r);
         }
@@ -3048,6 +3060,9 @@ final class CarConverter {
             files.put("CARS\\" + k.car + "\\TEXTURES.BIN", k.textures);
         }
         if (addons.size() > MAX_ADDONS) throw new Failure(Failure.Reason.UNSUPPORTED, "more than " + MAX_ADDONS + " add-on cars");
+        // Audit every retained source archive, including mods replacing a stock car. The audit is
+        // intentionally explicit: PC-only files are preserved, but are not counted as Xbox-converted.
+        for (Kept k : kept) auditSourceAssets(k, log);
         if (!addons.isEmpty()) {
             g = patchGlobal(g, addons, log);
             byte[] lzc = jdlzEncode(g);
@@ -3059,7 +3074,6 @@ final class CarConverter {
             fe.typeNames = v.typeNames;
             StringBuilder list = new StringBuilder();
             for (Kept k : addons) {
-                auditSourceAssets(k, log);
                 String node = k.car.toLowerCase(Locale.ROOT);
                 if (k.script != null) applyScript(v, fe, k.script, log);
                 // a script of another name for the car, or none: the Gallardo's handling
