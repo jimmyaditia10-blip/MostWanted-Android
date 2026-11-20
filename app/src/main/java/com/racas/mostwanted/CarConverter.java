@@ -2731,8 +2731,8 @@ final class CarConverter {
     private static void auditSourceAssets(Kept car, Consumer<String> log) throws IOException {
         if (car.sourceAssets == null || !car.sourceAssets.isFile()) return;
         Map<String, Integer> types = new TreeMap<>();
-        Set<String> iniKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        Set<String> endOps = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Set<String>> iniValues = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Integer> endCommands = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         try (ZipInputStream zip = new ZipInputStream(new FileInputStream(car.sourceAssets))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -2752,16 +2752,27 @@ final class CarConverter {
                         if (total > (2 << 20)) throw new IOException("mod script too large to audit: " + path);
                         data.write(buffer, 0, n);
                     }
+                    String section = "";
                     for (String line : latin(data.toByteArray(), 0, data.size()).split("\\r?\\n")) {
                         String value = line.trim();
                         if (value.isEmpty() || value.startsWith(";") || value.startsWith("#") || value.startsWith("//")) continue;
                         if (ext.equals(".ini")) {
+                            if (value.startsWith("[") && value.endsWith("]")) {
+                                section = value.substring(1, value.length() - 1).trim();
+                                continue;
+                            }
                             int eq = value.indexOf('=');
-                            if (eq > 0) iniKeys.add(value.substring(0, eq).trim());
+                            if (eq > 0) {
+                                String key = value.substring(0, eq).trim();
+                                String val = value.substring(eq + 1).trim();
+                                iniValues.computeIfAbsent(section.isEmpty() ? key : section + "." + key,
+                                        ignored -> new TreeSet<>()).add(val);
+                            }
                         } else {
                             String[] words = value.split("\\s+");
                             if (words.length > 0 && !words[0].startsWith("[") && !words[0].startsWith(";"))
-                                endOps.add(words[0]);
+                                endCommands.merge(words[0] + (words.length > 1 ? " " + String.join(" ", Arrays.copyOfRange(words, 1, words.length)) : ""),
+                                        1, Integer::sum);
                         }
                     }
                 } else {
@@ -2779,8 +2790,18 @@ final class CarConverter {
             first = false;
         }
         log.accept(summary.toString());
-        if (!iniKeys.isEmpty()) log.accept(car.car + ": Unlimiter INI keys pending translation: " + String.join(", ", iniKeys));
-        if (!endOps.isEmpty()) log.accept(car.car + ": Binary .end operations pending translation: " + String.join(", ", endOps));
+        if (!iniValues.isEmpty()) {
+            List<String> values = new ArrayList<>();
+            for (Map.Entry<String, Set<String>> e : iniValues.entrySet())
+                values.add(e.getKey() + "=" + String.join("|", e.getValue()));
+            log.accept(car.car + ": Unlimiter INI settings pending Xbox mapping: " + String.join(", ", values));
+        }
+        if (!endCommands.isEmpty()) {
+            List<String> commands = new ArrayList<>();
+            for (Map.Entry<String, Integer> e : endCommands.entrySet())
+                commands.add(e.getKey() + (e.getValue() > 1 ? " (x" + e.getValue() + ")" : ""));
+            log.accept(car.car + ": Binary .end commands pending Xbox translation: " + String.join("; ", commands));
+        }
     }
 
     // mod: one car's files by their paths in the archive, with / in them (carFiles)
