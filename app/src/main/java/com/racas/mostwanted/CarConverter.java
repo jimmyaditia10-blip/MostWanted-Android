@@ -2801,6 +2801,7 @@ final class CarConverter {
         Map<String, Integer> types = new TreeMap<>();
         Map<String, Set<String>> iniValues = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, Integer> endCommands = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, Integer> endTargets = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         try (ZipInputStream zip = new ZipInputStream(new FileInputStream(car.sourceAssets))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -2837,10 +2838,18 @@ final class CarConverter {
                                         ignored -> new TreeSet<>()).add(val);
                             }
                         } else {
-                            String[] words = value.split("\\s+");
-                            if (words.length > 0 && !words[0].startsWith("[") && !words[0].startsWith(";"))
-                                endCommands.merge(words[0] + (words.length > 1 ? " " + String.join(" ", Arrays.copyOfRange(words, 1, words.length)) : ""),
-                                        1, Integer::sum);
+                            List<String> words = endTokens(value);
+                            if (!words.isEmpty() && !value.startsWith("[") && !value.startsWith("{") && !value.startsWith("}")) {
+                                endCommands.merge(words.get(0).toLowerCase(Locale.ROOT), 1, Integer::sum);
+                                for (int wi = 1; wi < words.size(); wi++) {
+                                    String token = words.get(wi).replace((char) 92, '/');
+                                    String lowerToken = token.toLowerCase(Locale.ROOT);
+                                    if (lowerToken.contains("/") || lowerToken.matches(".*\\.(bin|bun|lzc|gin|wav|fng|dds|tga|png|txt)$")) {
+                                        String target = endTargetClass(lowerToken);
+                                        endTargets.merge(target, 1, Integer::sum);
+                                    }
+                                }
+                            }
                         }
                     }
                 } else if (ext.equals(".gin")) {
@@ -2881,8 +2890,35 @@ final class CarConverter {
             List<String> commands = new ArrayList<>();
             for (Map.Entry<String, Integer> e : endCommands.entrySet())
                 commands.add(e.getKey() + (e.getValue() > 1 ? " (x" + e.getValue() + ")" : ""));
-            log.accept(car.car + ": Binary .end commands pending Xbox translation: " + String.join("; ", commands));
+            log.accept(car.car + ": Binary .end command inventory (not executed): " + String.join("; ", commands));
         }
+        if (!endTargets.isEmpty()) {
+            List<String> targets = new ArrayList<>();
+            for (Map.Entry<String, Integer> e : endTargets.entrySet())
+                targets.add(e.getKey() + " x" + e.getValue());
+            log.accept(car.car + ": Binary .end path targets requiring Xbox mapping: " + String.join(", ", targets));
+        }
+    }
+
+    // Binary Endscript supports quoted paths and whitespace; preserve a quoted path as one argument.
+    private static List<String> endTokens(String line) {
+        List<String> out = new ArrayList<>();
+        Matcher m = Pattern.compile("\\\"([^\\\"]*)\\\"|'([^']*)'|(\\S+)").matcher(line);
+        while (m.find()) out.add(m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3));
+        return out;
+    }
+
+    private static String endTargetClass(String path) {
+        if (path.contains("global/") || path.startsWith("global")) return "GLOBAL archive";
+        if (path.contains("frontend/") || path.startsWith("frontend")) return "FRONTEND archive";
+        if (path.contains("cars/") || path.startsWith("cars")) return "car-specific archive";
+        if (path.contains("sound/") || path.startsWith("sound")) return "SOUND assets";
+        if (path.contains("language/") || path.contains("/english") || path.contains("/french")
+                || path.contains("/german") || path.contains("/italian") || path.contains("/spanish"))
+            return "localized language assets";
+        if (path.endsWith(".dds") || path.endsWith(".tga") || path.endsWith(".png"))
+            return "standalone texture";
+        return "other file path";
     }
 
     // mod: one car's files by their paths in the archive, with / in them (carFiles)
