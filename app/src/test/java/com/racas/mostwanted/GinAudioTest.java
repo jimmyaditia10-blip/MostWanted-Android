@@ -39,6 +39,14 @@ public class GinAudioTest {
         assertTrue(r.hasStructurallyValidIndex());
     }
 
+    @Test public void accepts48000HzMostWantedAddonGinRate() {
+        byte[] b = sample("Gnsu20", new long[]{0, 1000, 2000}, 3000);
+        put32(b, 28, 48000);
+        GinAudio.Result r = GinAudio.inspect(b);
+        assertEquals(GinAudio.Status.SUPPORTED_HEADER, r.status);
+        assertEquals(48000, r.sampleRate);
+    }
+
     @Test public void repairsOnlyValidatedLegacySignatureOnCopy() {
         byte[] original = sample("Octn21", new long[]{0, 1000, 2000}, 3000);
         byte[] repaired = GinAudio.repairLegacyHeader(original);
