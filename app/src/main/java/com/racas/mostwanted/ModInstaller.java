@@ -116,6 +116,7 @@ final class ModInstaller {
 
     private static Installed install(Context context, File game, File archive, File spool, String pageTitle, Consumer<String> log) throws Exception {
         Map<String, File> files = ModArchive.read(archive, spool, log);
+        files = CarConverter.resolveBinaryFiles(files, log);
         List<String> paths = CarConverter.carPaths(files.keySet());
         Installed result = new Installed();
         // texture packs (TexturePacks), each a folder of its own; the cars' files are not touched by them
