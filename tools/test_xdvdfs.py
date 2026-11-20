@@ -27,8 +27,8 @@ class XdvdfsReaderTest(unittest.TestCase):
 
     def test_resolves_nested_directory(self):
         image = bytearray(5 * xdvdfs.SECTOR)
-        root = directory("GLOBAL", 2, 16, xdvdfs.DIR)
         child = directory("TEXTURES.BIN", 3, 4)
+        root = directory("GLOBAL", 2, len(child), xdvdfs.DIR)
         image[xdvdfs.SECTOR: xdvdfs.SECTOR + len(root)] = root
         image[2 * xdvdfs.SECTOR: 2 * xdvdfs.SECTOR + len(child)] = child
         image[3 * xdvdfs.SECTOR: 3 * xdvdfs.SECTOR + 4] = b"data"
@@ -52,7 +52,7 @@ class XdvdfsReaderTest(unittest.TestCase):
         table = bytearray(32)
         struct.pack_into("<HHIIBB", table, 0, 4, 0, 1, 1, 0, 1)
         table[14] = ord("A")
-        struct.pack_into("<HHIIBB", table, 16, 0, 0, 1, 1, 0, 1)
+        struct.pack_into("<HHIIBB", table, 16, 4, 0, 1, 1, 0, 1)
         table[30] = ord("B")
         image = bytearray(xdvdfs.SECTOR)
         image[:len(table)] = table
