@@ -73,7 +73,12 @@ final class CarConverter {
         String car, title, manufacturer;
         byte[] geometry, textures, script, logo;  // script and logo may be null
         int logoWidth, logoHeight, logoFormat;
-        byte[] sourceAssets; // original Binary/Unlimiter/Binary-script/audio assets retained for later conversion
+        byte[] sourceAssets; // lossless original PC assets retained for future converters
+    }
+
+    private static final class RuntimeAssets {
+        final Map<String, byte[]> files = new LinkedHashMap<>();
+        final Set<String> sourcePaths = new HashSet<>();
     }
 
     // a kept car for build: its two big files by path
@@ -3012,10 +3017,91 @@ final class CarConverter {
         return bytes.toByteArray();
     }
 
+    // Resolve only explicitly declared engine GIN moves. The Xbox archive writer can register
+    // these native SOUND/ENGINE paths in ZDIR; unrelated PC paths and WAVs are never guessed.
+    private static RuntimeAssets mappedGinAssets(Kept car, Consumer<String> log) throws IOException, Failure {
+        RuntimeAssets result = new RuntimeAssets();
+        if (car.sourceAssets == null || !car.sourceAssets.isFile()) return result;
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        Map<String, String> folded = new HashMap<>();
+        long total = 0;
+        try (ZipInputStream zip = new ZipInputStream(new FileInputStream(car.sourceAssets))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entry.isDirectory()) continue;
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                int n;
+                while ((n = zip.read(buffer)) != -1) {
+                    total += n;
+                    if (out.size() + n > (64 << 20) || total > (512L << 20))
+                        throw new IOException("source asset archive exceeds GIN mapping limits");
+                    out.write(buffer, 0, n);
+                }
+                String name = entry.getName().replace((char) 92, '/');
+                String key = name.toLowerCase(Locale.ROOT);
+                if (folded.putIfAbsent(key, name) != null)
+                    throw new IOException("duplicate source asset path: " + name);
+                entries.put(name, out.toByteArray());
+                zip.closeEntry();
+            }
+        }
+        for (Map.Entry<String, byte[]> script : entries.entrySet()) {
+            String scriptPath = script.getKey().toLowerCase(Locale.ROOT);
+            String scriptName = scriptPath.substring(scriptPath.lastIndexOf('/') + 1);
+            if (scriptName.contains("uninstall")
+                    || (!scriptName.equals("install_strings") && !scriptPath.endsWith(".end"))) continue;
+            String body = latin(script.getValue(), 0, script.getValue().length)
+                    .replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n");
+            int slash = script.getKey().lastIndexOf('/');
+            String root = slash < 0 ? "" : script.getKey().substring(0, slash + 1);
+            for (String line : body.split("\\r?\\n")) {
+                List<String> words = endTokens(line.trim());
+                if (words.size() != 6 || !words.get(0).equalsIgnoreCase("move_file")) continue;
+                String destination = words.get(5).replace((char) 92, '/').replaceAll("/+", "/");
+                String target = destination.toUpperCase(Locale.ROOT);
+                if (!target.startsWith("SOUND/ENGINE/") || !target.endsWith(".GIN")) continue;
+                for (String part : destination.split("/"))
+                    if (part.equals(".") || part.equals(".."))
+                        throw new IOException("unsafe GIN destination: " + destination);
+                if (destination.startsWith("/") || destination.matches("^[A-Za-z]:.*"))
+                    throw new IOException("absolute GIN destination is not allowed: " + destination);
+                String source = words.get(4).replace((char) 92, '/');
+                String wanted = (root + source).toLowerCase(Locale.ROOT);
+                String found = folded.get(wanted);
+                if (found == null) {
+                    String base = source.substring(source.lastIndexOf('/') + 1);
+                    for (String candidate : entries.keySet()) {
+                        if (!candidate.substring(candidate.lastIndexOf('/') + 1).equalsIgnoreCase(base)) continue;
+                        if (found != null) throw new Failure(Failure.Reason.UNSUPPORTED,
+                                "ambiguous GIN source in Binary move_file: " + source);
+                        found = candidate;
+                    }
+                }
+                if (found == null) throw new Failure(Failure.Reason.UNSUPPORTED,
+                        "missing GIN source in Binary move_file: " + source + " -> " + destination);
+                byte[] bytes = entries.get(found);
+                GinAudio.Result inspected = GinAudio.inspect(bytes);
+                if (!inspected.hasStructurallyValidIndex())
+                    throw new Failure(Failure.Reason.UNSUPPORTED,
+                            "GIN cannot be registered for Xbox: " + found + " (" + inspected.reason + ")");
+                if (inspected.needsLegacyRepair()) bytes = GinAudio.repairLegacyHeader(bytes);
+                String gamePath = destination.replace('/', (char) 92);
+                byte[] previous = result.files.putIfAbsent(gamePath, bytes);
+                if (previous != null && !Arrays.equals(previous, bytes))
+                    throw new IOException("conflicting GIN payloads for " + gamePath);
+                result.sourcePaths.add(found.toLowerCase(Locale.ROOT));
+                log.accept(car.car + ": validated GIN registered in Xbox ZDIR: " + gamePath
+                        + " (" + bytes.length + " bytes, " + inspected.sampleRate + " Hz)");
+            }
+        }
+        return result;
+    }
+
     // Inspect retained PC-only assets at build time. This deliberately does not copy them into ZDIR:
     // a PC Binary .end path is not an Xbox file operation, and Unlimiter INI keys are not Xbox attributes.
     // Reporting the exact payload prevents a kept archive from being mistaken for a fully converted car.
-    private static void auditSourceAssets(Kept car, Consumer<String> log) throws IOException {
+    private static void auditSourceAssets(Kept car, Consumer<String> log, Set<String> injectedSources) throws IOException {
         if (car.sourceAssets == null || !car.sourceAssets.isFile()) return;
         Map<String, Integer> types = new TreeMap<>();
         Map<String, Set<String>> iniValues = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -3030,7 +3116,8 @@ final class CarConverter {
                 String lower = path.toLowerCase(Locale.ROOT);
                 // Geometry and texture containers have dedicated Xbox converters. Other retained source
                 // entries must be accounted for explicitly instead of disappearing from the report.
-                boolean convertedContainer = lower.endsWith("/geometry.bin") || lower.endsWith("/textures.bin");
+                boolean convertedContainer = lower.endsWith("/geometry.bin") || lower.endsWith("/textures.bin")
+                        || injectedSources.contains(lower);
                 if (!convertedContainer) pendingPaths.add(path);
                 int dot = lower.lastIndexOf('.');
                 String ext = dot >= 0 ? lower.substring(dot) : "[no extension]";
@@ -3099,14 +3186,14 @@ final class CarConverter {
                 zip.closeEntry();
             }
         }
-        StringBuilder summary = new StringBuilder(car.car).append(": retained PC-only assets (not injected into Xbox): ");
+        StringBuilder summary = new StringBuilder(car.car).append(": source assets not mapped to Xbox runtime files: ");
         boolean first = true;
         for (Map.Entry<String, Integer> e : types.entrySet()) {
             if (!first) summary.append(", ");
             summary.append(e.getKey()).append(" x").append(e.getValue());
             first = false;
         }
-        log.accept(summary.toString());
+        if (!pendingPaths.isEmpty()) log.accept(summary.toString());
         if (!pendingPaths.isEmpty()) {
             log.accept(car.car + ": source entries not yet mapped to Xbox runtime files (" + pendingPaths.size() + "):");
             int shown = Math.min(80, pendingPaths.size());
@@ -3294,9 +3381,18 @@ final class CarConverter {
             files.put("CARS\\" + k.car + "\\TEXTURES.BIN", k.textures);
         }
         if (addons.size() > MAX_ADDONS) throw new Failure(Failure.Reason.UNSUPPORTED, "more than " + MAX_ADDONS + " add-on cars");
-        // Audit every retained source archive, including mods replacing a stock car. The audit is
-        // intentionally explicit: PC-only files are preserved, but are not counted as Xbox-converted.
-        for (Kept k : kept) auditSourceAssets(k, log);
+        // Add only validated, explicitly mapped native GIN payloads to the Xbox file list.
+        // The source ZIP remains lossless; unsupported PC assets remain visible in the audit.
+        for (Kept k : kept) {
+            RuntimeAssets runtime = mappedGinAssets(k, log);
+            for (Map.Entry<String, byte[]> asset : runtime.files.entrySet()) {
+                byte[] previous = (byte[]) files.putIfAbsent(asset.getKey(), asset.getValue());
+                if (previous != null && !Arrays.equals(previous, asset.getValue()))
+                    throw new Failure(Failure.Reason.UNSUPPORTED,
+                            "conflicting runtime asset path: " + asset.getKey());
+            }
+            auditSourceAssets(k, log, runtime.sourcePaths);
+        }
         if (!addons.isEmpty()) {
             g = patchGlobal(g, addons, log);
             byte[] lzc = jdlzEncode(g);
