@@ -200,17 +200,41 @@ float4 psmain(O i) : SV_Target {
     int weatherMode = (int)weather.x;
     int weatherState = weatherMode == 1 ? (int)weather.y : weatherMode - 2;
     if (weatherMode > 0) {
-        if (weatherState == 0) { // clear: crisp daylight, restrained blue sky lift
-            c = (c - 0.5) * 1.035 + 0.5;
-            c *= float3(1.015, 1.025, 1.045);
-            c = lerp(Luma(c).xxx, c, 1.06);
-        } else if (weatherState == 1) { // rain: cooler ambient, stronger midtone separation
-            c *= float3(0.965, 0.990, 1.035);
-            c = (c - 0.48) * 1.075 + 0.48;
-            c = lerp(Luma(c).xxx, c, 1.08);
-        } else if (weatherState == 2) { // cloudy: soft contrast, neutral saturation and lifted shadows
-            c = (c - 0.46) * 0.97 + 0.49;
-            c = lerp(Luma(c).xxx, c, 0.94);
+        // Redux-inspired grade: stronger tonal separation and richer colour, with a soft highlight shoulder.
+        // Keep the grade scene-aware so bright paint and sky retain detail instead of clipping to white.
+        float sceneLuma = Luma(max(c, 0.0));
+        float3 toneTint = float3(1.0, 1.0, 1.0);
+        float contrast = 1.10;
+        float saturation = 1.16;
+        float exposure = 1.035;
+        if (weatherState == 0) { // clear: warm daylight, vivid paint, deeper road shadows
+            contrast = 1.13;
+            saturation = 1.22;
+            exposure = 1.045;
+            toneTint = float3(1.025, 1.010, 0.985);
+        } else if (weatherState == 1) { // rain: cool reflections, rich wet asphalt, defined midtones
+            contrast = 1.16;
+            saturation = 1.14;
+            exposure = 1.025;
+            toneTint = float3(0.975, 1.005, 1.045);
+        } else if (weatherState == 2) { // cloudy: neutral cinematic light, no grey wash
+            contrast = 1.11;
+            saturation = 1.12;
+            exposure = 1.055;
+            toneTint = float3(1.015, 1.020, 1.025);
+        }
+        c *= exposure;
+        c *= toneTint;
+        float luma = Luma(c);
+        c = lerp(luma.xxx, c, saturation);
+        c = (c - 0.46) * contrast + 0.46;
+        // Gentle highlight compression protects bright bodywork and sky while preserving punchy blacks.
+        float3 highlight = max(c - 0.78, 0.0);
+        c -= highlight * 0.22;
+        // Lift only the darkest toe slightly in overcast/rain scenes to retain road and car detail.
+        if (weatherState != 0) {
+            float shadowMask = 1.0 - smoothstep(0.015, 0.24, sceneLuma);
+            c += shadowMask * (weatherState == 1 ? 0.012 : 0.018);
         }
     }
     c = saturate(c) * opts.w;
