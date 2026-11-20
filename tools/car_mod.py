@@ -1372,6 +1372,30 @@ class Vault:
             return align(8, al) + cap * el
         return sz
 
+    def delete(self, cls, node):
+        key = (attrib_key(cls), attrib_key(node))
+        at = self.colls.pop(key, None)
+        if at is None:
+            return "node does not exist"
+        before = len(self.rows) + len(self.new_rows)
+        self.rows = [r for r in self.rows if not (r[1] == COLL_ROW and r[4] == at)]
+        self.new_rows = [r for r in self.new_rows if not (r[1] == COLL_ROW and r[4] == at)]
+        if len(self.rows) + len(self.new_rows) == before:
+            self.colls[key] = at
+            return "node index row not found"
+        return None
+
+    def rename(self, cls, node, renamed):
+        if (attrib_key(cls), attrib_key(node)) not in self.colls:
+            return "node does not exist"
+        if (attrib_key(cls), attrib_key(renamed)) in self.colls:
+            return "destination node already exists"
+        self.clone(cls, node, renamed)
+        why = self.delete(cls, node)
+        if why:
+            self.delete(cls, renamed)
+        return why
+
     def _rec(self, cls, node):
         at = self.colls[(attrib_key(cls), attrib_key(node))]
         return at
@@ -1644,8 +1668,22 @@ def apply_script(main, fe, path):
                 skipped["%s.%s: %s" % (cls, name, why)] += 1
             else:
                 done += 1
+        elif op == "delete_node":
+            why = v.delete(cls, w[2])
+            if why:
+                skipped["delete %s %s: %s" % (cls, w[2], why)] += 1
+            else:
+                done += 1
+        elif op == "rename_node":
+            why = v.rename(cls, w[2], w[3])
+            if why:
+                skipped["rename %s %s: %s" % (cls, w[2], why)] += 1
+            else:
+                done += 1
         elif op in ("add_field", "resize_field"):
             skipped[op + " " + cls + "." + w[3]] += 1
+        else:
+            skipped["unsupported command " + op] += 1
     print("vault: %d script lines applied" % done)
     for k, n in sorted(skipped.items()):
         print("  skipped %s (%d)" % (k, n))
