@@ -2973,19 +2973,18 @@ final class CarConverter {
     static Map<String, byte[]> carFiles(Map<String, File> files, String geoPath) throws IOException {
         Matcher binary = BINARY_ROOT.matcher(geoPath);
         Matcher geo = geoMatch(geoPath);
-        // A Binary package may keep its car under Binary/Cars/<name> while its
-        // install scripts and companion assets live beside Binary (for example
-        // ModScript/ and Assets/). Scope to the archive's package root, not the
-        // GEOMETRY.BIN parent, or those required files are silently excluded.
-        int packageSlash = geoPath.indexOf('/');
-        String root = packageSlash < 0 ? "" : geoPath.substring(0, packageSlash + 1);
+        // A Binary package may place its car under Binary/Cars/<name> while
+        // Install_Attributes, .nfsms wrappers, .end scripts and companion Assets/
+        // live at the archive root. Do not infer the package root from GEOMETRY.BIN:
+        // doing so drops root-level installer scripts and makes the loader fall back
+        // to parsing a .nfsms UI wrapper as VaultEd commands.
         List<String> folders = new ArrayList<>();
         for (String other : carPaths(files.keySet()))
             if (!other.equals(geoPath)) folders.add(other.substring(0, other.length() - "GEOMETRY.BIN".length()));
         Map<String, byte[]> out = new HashMap<>();
         for (Map.Entry<String, File> e : files.entrySet()) {
             String k = e.getKey();
-            if (!k.startsWith(root) || folders.stream().anyMatch(k::startsWith)) continue;
+            if (folders.stream().anyMatch(k::startsWith)) continue;
             out.put(k, Files.readAllBytes(e.getValue().toPath()));
         }
         return out;
