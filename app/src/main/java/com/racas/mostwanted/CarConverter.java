@@ -2758,7 +2758,8 @@ final class CarConverter {
             // Binary packs commonly store the actual VERSN2 command stream in
             // an extensionless Install_Strings file, while the .end file is only
             // a VERSN1 setup descriptor.
-            if (!scriptPath.endsWith(".end") && !scriptName.equals("install_strings")) continue;
+            if ((!scriptPath.endsWith(".end") && !scriptName.equals("install_strings"))
+                    || scriptName.contains("uninstall")) continue;
             byte[] raw = Files.readAllBytes(script.getValue().toPath());
             String body = latin(raw, 0, raw.length);
             // Some Binary-generated Install_Strings files encode line breaks literally.
@@ -2803,8 +2804,8 @@ final class CarConverter {
                     }
                 }
                 if (found == null) {
-                    log.accept("Binary move_file source not resolved: " + source + " -> " + destination);
-                    continue;
+                    throw new IOException("Binary move_file source is missing or ambiguous: "
+                            + source + " -> " + destination + " (script " + script.getKey() + ")");
                 }
                 String alias = packageRoot + destination;
                 File previous = resolved.get(alias);
