@@ -198,75 +198,111 @@ float4 psmain(O i) : SV_Target {
     c = (c - 0.5) * grade.x + 0.5;
     c *= grade.yzw;
 
-    // Material-aware pixel grading. Xbox draw calls do not expose semantic material labels,
-    // so use soft colour/luma masks rather than brittle texture-address guesses. The masks
-    // are deliberately overlapping and feathered to avoid visible segmentation halos.
+    // Soft screen-space material groups. These are confidence masks, not semantic
+    // object IDs: the D3D8 frame exposes the composed image at this stage.
     int weatherMode = (int)weather.x;
     float materialGradeStrength = weatherMode > 0 ? saturate(weather.z) : 0.0;
-    float materialLuma = Luma(max(c, 0.0));
+    float3 sourceColor = max(c, 0.0);
+    float materialLuma = Luma(sourceColor);
     float cMin = min(c.r, min(c.g, c.b));
     float cMax = max(c.r, max(c.g, c.b));
     float chroma = cMax - cMin;
-    float skyMask = smoothstep(0.015, 0.105, c.b - max(c.r, c.g) * 0.82) *
-                    smoothstep(0.34, 0.72, materialLuma);
-    float foliageMask = smoothstep(0.025, 0.13, c.g - max(c.r, c.b) * 0.88) *
+    float warmBias = c.r - c.b * 0.82;
+    float greenBias = c.g - max(c.r, c.b) * 0.88;
+    float blueBias = c.b - max(c.r, c.g) * 0.82;
+
+    // Six requested visual families. Feathered masks intentionally overlap softly.
+    float skyMask = smoothstep(0.018, 0.105, blueBias) *
+                    smoothstep(0.38, 0.74, materialLuma);
+    float foliageMask = smoothstep(0.025, 0.13, greenBias) *
                         (1.0 - smoothstep(0.72, 0.94, materialLuma));
-    float paintMask = smoothstep(0.10, 0.24, chroma) *
-                      smoothstep(0.12, 0.28, materialLuma) *
-                      (1.0 - smoothstep(0.88, 0.98, materialLuma));
-    float roadMask = (1.0 - smoothstep(0.035, 0.12, chroma)) *
-                     smoothstep(0.055, 0.16, materialLuma) *
-                     (1.0 - smoothstep(0.58, 0.78, materialLuma));
-    float sunMask = smoothstep(0.62, 0.91, materialLuma) *
-                    smoothstep(0.015, 0.12, c.r - c.b * 0.78);
-    float3 materialLumaRgb = materialLuma.xxx;
-    float3 materialChroma = c - materialLumaRgb;
-    // Cars/paint: richer but not neon; foliage: stronger natural greens; sky: cleaner blue.
-    c += materialChroma * paintMask * 0.105 * materialGradeStrength;
-    c.g += foliageMask * 0.018 * materialGradeStrength;
-    c.b += skyMask * 0.022 * materialGradeStrength;
-    // Asphalt gains restrained neutral definition; sunlight keeps a warm shoulder without clipping.
-    c = lerp(c, (c - 0.48) * 1.025 + 0.48, roadMask * 0.55 * materialGradeStrength);
-    c.r += sunMask * 0.012 * materialGradeStrength;
-    c.g += sunMask * 0.004 * materialGradeStrength;
+    float roadMask = (1.0 - smoothstep(0.035, 0.13, chroma)) *
+                     smoothstep(0.045, 0.15, materialLuma) *
+                     (1.0 - smoothstep(0.48, 0.68, materialLuma));
+    float buildingMask = (1.0 - smoothstep(0.055, 0.16, chroma)) *
+                         smoothstep(0.24, 0.42, materialLuma) *
+                         (1.0 - smoothstep(0.82, 0.94, materialLuma)) *
+                         (1.0 - roadMask) * (1.0 - skyMask);
+    float environmentMask = smoothstep(0.012, 0.075, warmBias) *
+                            (1.0 - smoothstep(0.09, 0.19, chroma)) *
+                            smoothstep(0.12, 0.28, materialLuma) *
+                            (1.0 - smoothstep(0.72, 0.88, materialLuma)) *
+                            (1.0 - roadMask) * (1.0 - buildingMask);
+    float vehiclePaintMask = smoothstep(0.11, 0.25, chroma) *
+                             smoothstep(0.13, 0.29, materialLuma) *
+                             (1.0 - smoothstep(0.88, 0.98, materialLuma)) *
+                             (1.0 - skyMask * 0.85) * (1.0 - foliageMask * 0.65);
+    float sunlightMask = smoothstep(0.68, 0.93, materialLuma) *
+                         smoothstep(0.018, 0.12, warmBias);
+
+    // Preserve source texture micro-detail: add back only a small high-frequency
+    // component, gated away from deep shadows and clipped highlights.
+    float2 detailStep = src.xy * max(opts.z, 1.0);
+    float3 detailNeighbours = (Tap(uv + float2(detailStep.x, 0)) +
+                               Tap(uv - float2(detailStep.x, 0)) +
+                               Tap(uv + float2(0, detailStep.y)) +
+                               Tap(uv - float2(0, detailStep.y))) * 0.25;
+    float3 textureDetail = c - detailNeighbours;
+    float detailGate = smoothstep(0.075, 0.22, materialLuma) *
+                       (1.0 - smoothstep(0.82, 0.96, materialLuma));
+    c += textureDetail * (0.075 * detailGate * materialGradeStrength);
+
+    float3 neutralLuma = Luma(max(c, 0.0)).xxx;
+    float3 paintChroma = c - neutralLuma;
+    // Car paint / colored surfaces: restrained chroma, not artificial neon.
+    c += paintChroma * vehiclePaintMask * 0.072 * materialGradeStrength;
+    // Road: retain asphalt grain while adding a mild midtone definition.
+    c = lerp(c, (c - 0.48) * 1.018 + 0.48,
+             roadMask * 0.42 * materialGradeStrength);
+    // Buildings: slightly clearer neutral separation without bleaching facade colors.
+    c = lerp(c, (c - 0.47) * 1.012 + 0.47,
+             buildingMask * 0.32 * materialGradeStrength);
+    // Environment / foliage: natural green and earth response.
+    c.g += foliageMask * 0.012 * materialGradeStrength;
+    c.r += environmentMask * 0.006 * materialGradeStrength;
+    c.g += environmentMask * 0.003 * materialGradeStrength;
+    // Sky and sun: clean blue, soft warm highlights with a protected shoulder.
+    c.b += skyMask * 0.016 * materialGradeStrength;
+    c.r += sunlightMask * 0.008 * materialGradeStrength;
+    c.g += sunlightMask * 0.003 * materialGradeStrength;
     float weatherState = weatherMode == 1 ? saturate(weather.y) : float(weatherMode - 2);
     float3 ungradedColor = c;
     if (weatherMode > 0) {
         // Softer scene-adaptive grade: restrained saturation, gentle contrast and natural highlight retention.
         float sceneLuma = Luma(max(c, 0.0));
         float3 toneTint = float3(1.0, 1.0, 1.0);
-        float contrast = 1.045;
-        float saturation = 1.075;
-        float exposure = 1.012;
+        float contrast = 1.032;
+        float saturation = 1.052;
+        float exposure = 1.006;
         float daylightMix = 0.12;
         float shadowLift = 0.006;
         if (weatherMode == 1) {
             // AUTO blends continuously between clear and rain instead of switching abruptly.
             float rainMix = smoothstep(0.12, 0.88, weatherState);
-            contrast = lerp(1.045, 1.052, rainMix);
-            saturation = lerp(1.080, 1.045, rainMix);
-            exposure = lerp(1.012, 0.998, rainMix);
+            contrast = lerp(1.032, 1.040, rainMix);
+            saturation = lerp(1.058, 1.040, rainMix);
+            exposure = lerp(1.006, 0.998, rainMix);
             toneTint = lerp(float3(1.012, 1.006, 0.996), float3(0.994, 1.004, 1.018), rainMix);
             shadowLift = lerp(0.006, 0.009, rainMix);
         } else if (weatherState == 0.0) { // clear
-            contrast = 1.052;
-            saturation = 1.095;
+            contrast = 1.042;
+            saturation = 1.052;
             exposure = 1.012;
             toneTint = float3(1.012, 1.006, 0.994);
         } else if (weatherState == 1.0) { // rain
             contrast = 1.052;
-            saturation = 1.055;
+            saturation = 1.038;
             exposure = 0.998;
             toneTint = float3(0.994, 1.004, 1.018);
             shadowLift = 0.009;
         } else if (weatherState == 2.0) { // cloudy
-            contrast = 1.035;
+            contrast = 1.028;
             saturation = 1.045;
             exposure = 1.018;
             toneTint = float3(1.006, 1.010, 1.014);
             shadowLift = 0.012;
         } else if (weatherState == 3.0) { // sunset
-            contrast = 1.045;
+            contrast = 1.034;
             saturation = 1.065;
             exposure = 1.004;
             toneTint = float3(1.028, 1.012, 0.978);
@@ -282,12 +318,12 @@ float4 psmain(O i) : SV_Target {
         c = (c - 0.48) * contrast + 0.48;
         // Smooth shoulder and toe: retain bright paint/sun detail and open shadows without grey haze.
         float3 highlight = max(c - 0.70, 0.0);
-        c -= highlight * (0.18 + 0.07 * saturate((c - 0.70) / 0.30));
+        c -= highlight * (0.22 + 0.08 * saturate((c - 0.70) / 0.30));
         float shadowMask = 1.0 - smoothstep(0.012, 0.22, sceneLuma);
         c += shadowMask * shadowLift;
         // Fine, restrained local contrast: stronger in midtones, fades in deep shadows/highlights.
         float midMask = smoothstep(0.08, 0.24, sceneLuma) * (1.0 - smoothstep(0.72, 0.94, sceneLuma));
-        c = lerp(c, (c - 0.46) * 1.018 + 0.46, midMask);
+        c = lerp(c, (c - 0.46) * 1.012 + 0.46, midMask);
     }
     c = lerp(ungradedColor, c, saturate(weather.z));
     c = saturate(c) * opts.w;
