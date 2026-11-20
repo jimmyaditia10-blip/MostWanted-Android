@@ -9,6 +9,7 @@ name: Build
 
 on:
   push:
+    branches: ["feature/pc-to-xbox-mod-converter"]
     tags: ["v*"]
   workflow_dispatch:
 
