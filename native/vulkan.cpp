@@ -98,7 +98,7 @@ float4 psmain(O i) : SV_Target {
 // the present with the screen filter or anti-aliasing the player chose: the blit's, then post.x a filter (1 sharpen,
 // 2 vivid, 3 scanlines, 4 CRT) and post.y FXAA; src.xy a texel, src.z the frame's lines
 const char* kPresentHlsl = R"(
-cbuffer B : register(b1) { float4 uvrect; float4 opts; float4 src; float4 post; float4 grade; float4 weather; };
+cbuffer B : register(b1) { float4 uvrect; float4 opts; float4 src; float4 post; float4 grade; float4 weather; float4 daylight; };
 Texture2D img : register(t0);
 Texture2D lut : register(t1);
 SamplerState ls : register(s0);
@@ -204,37 +204,49 @@ float4 psmain(O i) : SV_Target {
         // Keep the grade scene-aware so bright paint and sky retain detail instead of clipping to white.
         float sceneLuma = Luma(max(c, 0.0));
         float3 toneTint = float3(1.0, 1.0, 1.0);
-        float contrast = 1.10;
-        float saturation = 1.16;
-        float exposure = 1.035;
+        float contrast = 1.075;
+        float saturation = 1.13;
+        float exposure = 1.025;
         if (weatherState == 0) { // clear: warm daylight, vivid paint, deeper road shadows
-            contrast = 1.13;
-            saturation = 1.22;
-            exposure = 1.045;
+            contrast = 1.095;
+            saturation = 1.18;
+            exposure = 1.025;
             toneTint = float3(1.025, 1.010, 0.985);
         } else if (weatherState == 1) { // rain: cool reflections, rich wet asphalt, defined midtones
-            contrast = 1.16;
-            saturation = 1.14;
-            exposure = 1.025;
+            contrast = 1.105;
+            saturation = 1.12;
+            exposure = 1.010;
             toneTint = float3(0.975, 1.005, 1.045);
         } else if (weatherState == 2) { // cloudy: neutral cinematic light, no grey wash
-            contrast = 1.11;
-            saturation = 1.12;
-            exposure = 1.055;
+            contrast = 1.075;
+            saturation = 1.10;
+            exposure = 1.035;
             toneTint = float3(1.015, 1.020, 1.025);
         }
+        if (weatherState == 3) { // sunset: warm amber highlights with a soft cinematic rolloff
+            contrast = 1.065;
+            saturation = 1.12;
+            exposure = 1.015;
+            toneTint = float3(1.055, 1.018, 0.955);
+        }
+        // Follow the game's native Visual Look RGB ramp as it blends through the day.
+        float daylightLuma = max(dot(daylight.rgb, float3(0.299, 0.587, 0.114)), 0.05);
+        float3 daylightBalance = clamp(daylight.rgb / daylightLuma, 0.88, 1.12);
+        float daylightMix = weatherState == 3 ? 0.30 : 0.18;
+        toneTint *= lerp(float3(1.0, 1.0, 1.0), daylightBalance, daylightMix);
         c *= exposure;
         c *= toneTint;
         float luma = Luma(c);
         c = lerp(luma.xxx, c, saturation);
         c = (c - 0.46) * contrast + 0.46;
         // Gentle highlight compression protects bright bodywork and sky while preserving punchy blacks.
-        float3 highlight = max(c - 0.78, 0.0);
-        c -= highlight * 0.22;
+        float3 highlight = max(c - 0.72, 0.0);
+        c -= highlight * 0.30;
         // Lift only the darkest toe slightly in overcast/rain scenes to retain road and car detail.
-        if (weatherState != 0) {
-            float shadowMask = 1.0 - smoothstep(0.015, 0.24, sceneLuma);
-            c += shadowMask * (weatherState == 1 ? 0.012 : 0.018);
+        {
+            float shadowMask = 1.0 - smoothstep(0.012, 0.22, sceneLuma);
+            float lift = weatherState == 1 ? 0.010 : weatherState == 2 ? 0.014 : 0.008;
+            c += shadowMask * lift;
         }
     }
     c = saturate(c) * opts.w;
@@ -4277,7 +4289,7 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
     float aspect = game::Aspect();
     float w = float(swap_extent_.width), h = float(swap_extent_.height);
     float vw = std::min(w, h * aspect), vh = vw / aspect;
-    float c[24] = {0, 0, 1, 1, gamma_ ? 1.0f : 0.0f, 0, 1, 1};
+    float c[28] = {0, 0, 1, 1, gamma_ ? 1.0f : 0.0f, 0, 1, 1};
     // the screen filter and anti-aliasing, off unless the player picks them: the plain blit then
     const game::Options& visual = game::Opt();
     uint32_t filter = visual.screen_filter, aa = visual.anti_aliasing;
@@ -4298,6 +4310,9 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
         c[19] = visual.blue_gain;
         c[20] = float(visual.redux_weather);
         c[21] = float(game::g_weather_state.load(std::memory_order_relaxed));
+        c[24] = game::g_visual_tint_r.load(std::memory_order_relaxed);
+        c[25] = game::g_visual_tint_g.load(std::memory_order_relaxed);
+        c[26] = game::g_visual_tint_b.load(std::memory_order_relaxed);
         // supersampled: the texels each screen pixel covers, averaged
         if (aa == game::kAaSsaa) c[6] = std::clamp(std::round(float(t->h) / std::max(vh, 1.0f)), 1.0f, 4.0f);
     }

@@ -456,6 +456,10 @@ X86_FUNC(sub_000C1BD0) {
     float& g = kernel::G<float>(tint + 4);
     float& b = kernel::G<float>(tint + 8);
     float saved[] = {r, g, b};
+    // Expose the game's live Visual Look RGB ramp to the post grade.
+    game::g_visual_tint_r.store(std::clamp(saved[0], 0.0f, 2.0f), std::memory_order_relaxed);
+    game::g_visual_tint_g.store(std::clamp(saved[1], 0.0f, 2.0f), std::memory_order_relaxed);
+    game::g_visual_tint_b.store(std::clamp(saved[2], 0.0f, 2.0f), std::memory_order_relaxed);
     float luma = 0.299f * saved[0] + 0.587f * saved[1] + 0.114f * saved[2];
     if (game::Opt().night_mode) {
         r = 0.15f * luma;

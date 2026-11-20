@@ -48,7 +48,7 @@ void Load(const void* table) {
     o.red_gain = std::clamp(t["graphics_red"].value_or(o.red_gain), 0.5f, 1.5f);
     o.green_gain = std::clamp(t["graphics_green"].value_or(o.green_gain), 0.5f, 1.5f);
     o.blue_gain = std::clamp(t["graphics_blue"].value_or(o.blue_gain), 0.5f, 1.5f);
-    o.redux_weather = uint32_t(std::clamp<int64_t>(t["redux_weather"].value_or(int64_t(o.redux_weather)), 0, 4));
+    o.redux_weather = uint32_t(std::clamp<int64_t>(t["redux_weather"].value_or(int64_t(o.redux_weather)), 0, 5));
     if (const toml::table* keys = t["keys"].as_table())
         for (auto&& [id, value] : *keys)
             if (auto v = value.value<std::string>()) o.keys[std::string(id.str())] = *v;

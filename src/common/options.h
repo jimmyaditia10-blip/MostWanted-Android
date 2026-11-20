@@ -36,7 +36,7 @@ struct Options {
     float red_gain = 1.0f;  // independent RGB channel gain
     float green_gain = 1.0f;
     float blue_gain = 1.0f;
-    uint32_t redux_weather = 0;  // 0 off, 1 automatic, 2 clear, 3 rain, 4 cloudy
+    uint32_t redux_weather = 0;  // 0 off, 1 automatic, 2 clear, 3 rain, 4 cloudy, 5 sunset
     uint32_t anti_aliasing = 0;  // kAaOff, kAaFxaa or kAaSsaa
     uint32_t aspect_ratio = 0;  // the frame's shape in hundredths (133 is 4:3), 0 the whole screen; common/aspect.h
     bool bloom = true;  // the glow added over the frame, native/vulkan.cpp skips it when off
@@ -74,7 +74,10 @@ Options& Opt();
 // the language setting as this run started, the language the game boots in
 const std::string& BootLanguage();
 bool LanguageAvailable(const std::string& code);  // src/game/game.cpp: the LANGUAGE row offers it
-inline std::atomic<uint32_t> g_weather_state{0};  // 0 clear/default, 1 rain detected during the current frame
+inline std::atomic<uint32_t> g_weather_state{0};
+inline std::atomic<float> g_visual_tint_r{1.0f};
+inline std::atomic<float> g_visual_tint_g{1.0f};
+inline std::atomic<float> g_visual_tint_b{1.0f};  // 0 clear/default, 1 rain detected during the current frame
 inline std::atomic<uint32_t> g_road_reflection{0};  // the road reflection target's data, virtual; game.cpp, each present
 inline std::atomic<uint32_t> g_env_cube{0};         // the cars' reflection cube's data, the same
 inline std::atomic<bool> g_focus_paused{false};  // the game thread waits while the app is in the background

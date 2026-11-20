@@ -805,14 +805,15 @@ void GraphicsStep(const char* label, float& value, float lo, float hi, float inc
 void DrawGraphics(float em) {
     game::Options& o = game::Opt();
     static const char* filters[] = {"OFF", "SHARPEN", "VIVID", "SCANLINES", "CRT", "HDR"};
-    static const char* weather_profiles[] = {"OFF", "AUTO", "CLEAR", "RAIN", "CLOUDY"};
-    int weather = int(std::min(o.redux_weather, 4u));
+    static const char* weather_profiles[] = {"OFF", "AUTO", "CLEAR", "RAIN", "CLOUDY", "SUNSET"};
+    int weather = int(std::min(o.redux_weather, 5u));
     if (ImGui::Combo("REDUX V3 WEATHER", &weather, weather_profiles, IM_ARRAYSIZE(weather_profiles))) {
         o.redux_weather = uint32_t(weather);
         Changed();
     }
     if (o.redux_weather == 1) ImGui::TextDisabled("AUTO: rain is detected from the game's precipitation pass; clear is the fallback.");
-    else if (o.redux_weather == 4) ImGui::TextDisabled("Cloudy color grade: manual override until a native cloud-state signal is verified.");
+    else if (o.redux_weather == 4) ImGui::TextDisabled("Cloudy: soft neutral light with preserved color depth.");
+    else if (o.redux_weather == 5) ImGui::TextDisabled("Sunset: warm grade follows the game sky tint.");
     int filter = int(std::min(o.screen_filter, 5u));
     if (ImGui::Combo("SHADER", &filter, filters, IM_ARRAYSIZE(filters))) {
         o.screen_filter = uint32_t(filter);
