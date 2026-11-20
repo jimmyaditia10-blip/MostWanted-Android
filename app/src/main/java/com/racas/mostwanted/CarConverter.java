@@ -2433,6 +2433,34 @@ final class CarConverter {
                 String why = v.resizeArray(cls, w[2], w[3], count);
                 if (why != null) skipped.merge("resize " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
                 else done++;
+            } else if (op.equals("update_collection") && w.length >= 6) {
+                // VltEd collection updates use the same indexed field/member storage as update_field.
+                String node = w[2];
+                Matcher m = FIELD.matcher(w[3]);
+                if (!m.matches()) {
+                    skipped.merge("update_collection: invalid field " + w[3], 1, Integer::sum);
+                    continue;
+                }
+                String name = m.group(1);
+                int index = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
+                if (!v.has(cls, node)) {
+                    skipped.merge("update of " + cls + " " + node, 1, Integer::sum);
+                    continue;
+                }
+                String why = v.setValue(cls, node, name, index, w[4], w[5]);
+                if (why != null) skipped.merge(cls + "." + name + ": " + why, 1, Integer::sum);
+                else done++;
+            } else if (op.equals("resize_collection") && w.length >= 5) {
+                int count;
+                try {
+                    count = Integer.parseInt(w[4]);
+                } catch (NumberFormatException e) {
+                    skipped.merge("resize_collection " + cls + "." + w[3] + ": invalid count", 1, Integer::sum);
+                    continue;
+                }
+                String why = v.resizeArray(cls, w[2], w[3], count);
+                if (why != null) skipped.merge("resize_collection " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
+                else done++;
             } else if (op.equals("delete_node") && w.length >= 3) {
                 String why = v.deleteNode(cls, w[2]);
                 if (why != null) skipped.merge("delete " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
