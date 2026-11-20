@@ -108,7 +108,7 @@ final class CarConverter {
         if (base.contains("uninstall")) return false;
         if (base.equals("geometry.bin") || base.equals("textures.bin")) return true;
         if (base.startsWith("cartypeinfo") && base.endsWith(".bin")) return true;
-        if (base.endsWith(".nfsms") || base.endsWith(".end")) return true;
+        if (base.equals("install_attributes") || base.endsWith(".nfsms") || base.endsWith(".end")) return true;
         if (hasPathSegment(p, "carparts") && base.endsWith(".bin")) return true;
         if (hasPathSegment(p, "unlimiterdata") && base.endsWith(".ini")) return true;
         if ((base.startsWith("secondary_logo_") || base.startsWith("carselect_manufacturer_")) && base.endsWith(".dds")) return true;
