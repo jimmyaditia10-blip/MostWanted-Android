@@ -119,15 +119,13 @@ final class ModArchive {
 
     // a car's files, and a texture pack's (TexturePacks): its json, and its images shrunk as they come, an archive of
     // them often more than the cache would hold as they are
+    // Keep every regular file from the source archive. Conversion happens later by file type;
+    // an unknown extension must never disappear before the converter can inspect and report it.
     private static boolean wanted(String name) {
-        return CarConverter.wanted(name) || TexturePacks.wanted(name);
+        return true;
     }
 
     private static void save(Map<String, File> out, File spool, String name, byte[] data, long[] total) throws IOException {
-        if (TexturePacks.isImage(name) && !CarConverter.wanted(name)) {
-            data = TexturePacks.shrink(data);
-            if (data == null) return;  // a format the game's draws cannot take
-        }
         total[0] += data.length;
         if (total[0] > MAX_ALL) throw new IOException("the archive's files are too large");
         if (spool.getUsableSpace() < data.length + ROOM) throw new IOException("not enough storage left on the phone");
