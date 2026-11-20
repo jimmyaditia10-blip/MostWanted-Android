@@ -272,43 +272,57 @@ float4 psmain(O i) : SV_Target {
         // Softer scene-adaptive grade: restrained saturation, gentle contrast and natural highlight retention.
         float sceneLuma = Luma(max(c, 0.0));
         float3 toneTint = float3(1.0, 1.0, 1.0);
+        // Separate, deliberately restrained RGB profiles keep each manual preset's
+        // color identity while avoiding the large channel boosts that clip highlights.
+        float3 rgbProfile = float3(1.0, 1.0, 1.0);
+        const float3 clearRgb = float3(1.030, 1.014, 1.000);
+        const float3 rainRgb = float3(0.990, 1.000, 1.028);
+        const float3 cloudyRgb = float3(1.000, 1.010, 1.020);
+        const float3 sunsetRgb = float3(1.035, 1.014, 0.988);
         float contrast = 1.050;
         float saturation = 1.240;
         float exposure = 1.006;
         float daylightMix = 0.12;
         float shadowLift = 0.006;
         if (weatherMode == 1) {
-            // AUTO blends continuously between clear and rain instead of switching abruptly.
+            // AUTO currently has a verified live precipitation signal only.
+            // Keep its clear/rain transition continuous; do not guess cloudy/sunset.
             float rainMix = smoothstep(0.12, 0.88, weatherState);
             contrast = lerp(1.052, 1.055, rainMix);
             saturation = lerp(1.270, 1.205, rainMix);
             exposure = lerp(1.006, 0.998, rainMix);
             toneTint = lerp(float3(1.012, 1.006, 0.996), float3(0.994, 1.004, 1.018), rainMix);
+            rgbProfile = lerp(clearRgb, rainRgb, rainMix);
             shadowLift = lerp(0.006, 0.009, rainMix);
         } else if (weatherState == 0.0) { // clear
             contrast = 1.052;
             saturation = 1.260;
             exposure = 1.012;
             toneTint = float3(1.012, 1.006, 0.994);
+            rgbProfile = clearRgb;
         } else if (weatherState == 1.0) { // rain
             contrast = 1.055;
             saturation = 1.205;
             exposure = 0.998;
             toneTint = float3(0.994, 1.004, 1.018);
+            rgbProfile = rainRgb;
             shadowLift = 0.009;
         } else if (weatherState == 2.0) { // cloudy
             contrast = 1.045;
             saturation = 1.185;
             exposure = 1.005;
             toneTint = float3(1.006, 1.010, 1.014);
+            rgbProfile = cloudyRgb;
             shadowLift = 0.012;
         } else if (weatherState == 3.0) { // sunset
             contrast = 1.050;
             saturation = 1.245;
             exposure = 1.000;
             toneTint = float3(1.028, 1.012, 0.978);
+            rgbProfile = sunsetRgb;
             daylightMix = 0.20;
         }
+        toneTint *= rgbProfile;
         // Blend the game's native Visual Look RGB balance subtly into the grade.
         float daylightLuma = max(dot(daylight.rgb, float3(0.299, 0.587, 0.114)), 0.05);
         float3 daylightBalance = clamp(daylight.rgb / daylightLuma, 0.94, 1.06);
