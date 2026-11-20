@@ -2152,6 +2152,21 @@ final class CarConverter {
             return base + align(8, al) + index * el;
         }
 
+        // Resize an existing VltEd array without changing its element storage. Binary's common
+        // resize_field use (for example ShiftSND 1) is safe when the requested count fits its capacity.
+        String resizeArray(String cls, String node, String field, int count) {
+            Place p = fieldPlace(cls, node, field, 0);
+            if (p.def == null) return "no such field";
+            if ((p.def[4] & 1) == 0) return "not an array";
+            if (p.bin < 0) return "array storage is not in this node";
+            Integer alignment = aligns.get(pair(attribKey(cls), attribKey(field)));
+            int base = p.bin - align(8, alignment == null ? 4 : alignment);
+            int capacity = u16(bin.a, base + 2);
+            if (count < 0 || count > capacity) return "requested count " + count + " exceeds capacity " + capacity;
+            put16(bin.a, base, count);
+            return null;
+        }
+
         // null, or why not
         String setValue(String cls, String node, String field, int index, String member, String text) {
             Place p = fieldPlace(cls, node, field, index);
@@ -2371,7 +2386,18 @@ final class CarConverter {
                 String why = v.setValue(cls, node, name, index, member, text);
                 if (why != null) skipped.merge(cls + "." + name + ": " + why, 1, Integer::sum);
                 else done++;
-            } else if ((op.equals("add_field") || op.equals("resize_field")) && w.length > 3) {
+            } else if (op.equals("resize_field") && w.length >= 5) {
+                int count;
+                try {
+                    count = Integer.parseInt(w[4]);
+                } catch (NumberFormatException e) {
+                    skipped.merge("resize " + cls + "." + w[3] + ": invalid count", 1, Integer::sum);
+                    continue;
+                }
+                String why = v.resizeArray(cls, w[2], w[3], count);
+                if (why != null) skipped.merge("resize " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
+                else done++;
+            } else if (op.equals("add_field") && w.length > 3) {
                 skipped.merge(op + " " + cls + "." + w[3], 1, Integer::sum);
             }
         }
