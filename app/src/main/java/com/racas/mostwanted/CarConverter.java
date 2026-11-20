@@ -86,7 +86,8 @@ final class CarConverter {
 
     private static final Pattern WANTED = Pattern.compile(
             "(.*/)?([^/]+/(geometry|textures)\\.bin|cartypeinfo[^/]*\\.bin|[^/]*\\.nfsms|[^/]*\\.end"
-            + "|secondary_logo_[^/]*\\.dds)");
+            + "|(?:.*/)?carparts/[^/]+\\.bin|(?:.*/)?unlimiterdata/[^/]+\\.ini"
+            + "|(?:.*/)?(?:secondary_logo|carselect_manufacturer)_[^/]*\\.dds)");
 
     // an archive's files worth keeping for convert, its paths with / in them
     static boolean wanted(String path) {
@@ -2341,6 +2342,16 @@ final class CarConverter {
                 }
                 if (v.has(cls, w[4])) continue;  // another add-on's script made it: names are the mods' to clash
                 v.cloneNode(cls, w[2], w[4], w[3]);
+                done++;
+            } else if (op.equals("add_node") && w.length >= 4) {
+                // Binary/VltEd syntax: add_node <class> <parent/template> <new-name>.
+                // Clone the named parent/template so the new node has the class's real field layout.
+                if (!v.has(cls, w[2])) {
+                    skipped.merge("add " + cls + " " + w[2] + ": template missing", 1, Integer::sum);
+                    continue;
+                }
+                if (v.has(cls, w[3])) continue;
+                v.cloneNode(cls, w[2], w[3], w[2]);
                 done++;
             } else if (op.equals("update_field") && w.length >= 5) {
                 String node = w[2];
