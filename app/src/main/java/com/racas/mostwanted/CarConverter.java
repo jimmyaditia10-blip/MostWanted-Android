@@ -2381,7 +2381,7 @@ final class CarConverter {
 
     // VltEd's script, the parts of it the Xbox's database holds: nodes and their values. FE_ATTRIB holds the frontend
     // class's nodes, whose definition is in ATTRIBUTES. Smoke with its place moved is not worth new nodes
-    private static void applyScript(Vault main, Vault fe, byte[] script, Consumer<String> log) {
+    private static void applyScript(Vault main, Vault fe, byte[] script, Consumer<String> log) throws Failure {
         Map<String, Integer> skipped = new TreeMap<>();
         int done = 0;
         for (String line : latin(script, 0, script.length).split("\n")) {
@@ -2491,6 +2491,16 @@ final class CarConverter {
         }
         log.accept("vault: " + done + " script lines applied");
         for (Map.Entry<String, Integer> e : skipped.entrySet()) log.accept("  skipped " + e.getKey() + " (" + e.getValue() + ")");
+        // Fail closed: a PC VltEd script may control engine audio, turbo, brakes, lights,
+        // handling and upgrade behavior. Writing a partly modified Xbox Vault would make
+        // the mod look installed while silently losing required behavior. Keep all changes
+        // in memory and reject the build if even one required operation was not translated.
+        if (!skipped.isEmpty()) {
+            Map.Entry<String, Integer> first = skipped.entrySet().iterator().next();
+            throw new Failure(Failure.Reason.UNSUPPORTED,
+                    "VltEd conversion incomplete: " + skipped.size() + " unsupported operation types; first: "
+                            + first.getKey() + " (x" + first.getValue() + "). No partial Vault was written.");
+        }
     }
 
     // GLOBAL\GLOBALB: the car's record, its parts' table entry and collision, all in place: the size stays and with it the
