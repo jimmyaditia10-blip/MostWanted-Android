@@ -76,7 +76,7 @@ final class CarConverter {
         byte[] sourceAssets; // lossless original PC assets retained for future converters
     }
 
-    private static final class RuntimeAssets {
+    static final class RuntimeAssets {
         final Map<String, byte[]> files = new LinkedHashMap<>();
         final Set<String> sourcePaths = new HashSet<>();
     }
@@ -3019,7 +3019,7 @@ final class CarConverter {
 
     // Resolve only explicitly declared engine GIN moves. The Xbox archive writer can register
     // these native SOUND/ENGINE paths in ZDIR; unrelated PC paths and WAVs are never guessed.
-    private static RuntimeAssets mappedGinAssets(Kept car, Consumer<String> log) throws IOException, Failure {
+    static RuntimeAssets mappedGinAssets(Kept car, Consumer<String> log) throws IOException, Failure {
         RuntimeAssets result = new RuntimeAssets();
         if (car.sourceAssets == null || !car.sourceAssets.isFile()) return result;
         Map<String, byte[]> entries = new LinkedHashMap<>();
