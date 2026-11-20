@@ -30,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import java.util.zip.ZipInputStream;
 
 // PC add-on cars (Binary and VltEd install files) as files the Xbox game reads: convert makes one car's Package, which is
 // kept, and build makes the game's files for all of them. Add-ons get car types of their own after the game's 84 (84 is
@@ -2724,6 +2725,64 @@ final class CarConverter {
         return bytes.toByteArray();
     }
 
+    // Inspect retained PC-only assets at build time. This deliberately does not copy them into ZDIR:
+    // a PC Binary .end path is not an Xbox file operation, and Unlimiter INI keys are not Xbox attributes.
+    // Reporting the exact payload prevents a kept archive from being mistaken for a fully converted car.
+    private static void auditSourceAssets(Kept car, Consumer<String> log) throws IOException {
+        if (car.sourceAssets == null || !car.sourceAssets.isFile()) return;
+        Map<String, Integer> types = new TreeMap<>();
+        Set<String> iniKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        Set<String> endOps = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        try (ZipInputStream zip = new ZipInputStream(new FileInputStream(car.sourceAssets))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entry.isDirectory()) continue;
+                String path = entry.getName().replace((char) 92, '/');
+                String lower = path.toLowerCase(Locale.ROOT);
+                int dot = lower.lastIndexOf('.');
+                String ext = dot >= 0 ? lower.substring(dot) : "[no extension]";
+                types.merge(ext, 1, Integer::sum);
+                boolean inspectText = ext.equals(".ini") || ext.equals(".end") || ext.equals(".nfsms");
+                if (inspectText) {
+                    ByteArrayOutputStream data = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[4096];
+                    int n, total = 0;
+                    while ((n = zip.read(buffer)) != -1) {
+                        total += n;
+                        if (total > (2 << 20)) throw new IOException("mod script too large to audit: " + path);
+                        data.write(buffer, 0, n);
+                    }
+                    for (String line : latin(data.toByteArray(), 0, data.size()).split("\\r?\\n")) {
+                        String value = line.trim();
+                        if (value.isEmpty() || value.startsWith(";") || value.startsWith("#") || value.startsWith("//")) continue;
+                        if (ext.equals(".ini")) {
+                            int eq = value.indexOf('=');
+                            if (eq > 0) iniKeys.add(value.substring(0, eq).trim());
+                        } else {
+                            String[] words = value.split("\\s+");
+                            if (words.length > 0 && !words[0].startsWith("[") && !words[0].startsWith(";"))
+                                endOps.add(words[0]);
+                        }
+                    }
+                } else {
+                    byte[] buffer = new byte[8192];
+                    while (zip.read(buffer) != -1) { /* drain entry */ }
+                }
+                zip.closeEntry();
+            }
+        }
+        StringBuilder summary = new StringBuilder(car.car).append(": retained PC-only assets (not injected into Xbox): ");
+        boolean first = true;
+        for (Map.Entry<String, Integer> e : types.entrySet()) {
+            if (!first) summary.append(", ");
+            summary.append(e.getKey()).append(" x").append(e.getValue());
+            first = false;
+        }
+        log.accept(summary.toString());
+        if (!iniKeys.isEmpty()) log.accept(car.car + ": Unlimiter INI keys pending translation: " + String.join(", ", iniKeys));
+        if (!endOps.isEmpty()) log.accept(car.car + ": Binary .end operations pending translation: " + String.join(", ", endOps));
+    }
+
     // mod: one car's files by their paths in the archive, with / in them (carFiles)
     static Package convert(Disc disc, Map<String, byte[]> mod, String geoPath, int maxTexturesKb, Consumer<String> log) throws Failure, IOException {
         String car = carName(geoPath);
@@ -2867,6 +2926,7 @@ final class CarConverter {
             fe.typeNames = v.typeNames;
             StringBuilder list = new StringBuilder();
             for (Kept k : addons) {
+                auditSourceAssets(k, log);
                 String node = k.car.toLowerCase(Locale.ROOT);
                 if (k.script != null) applyScript(v, fe, k.script, log);
                 // a script of another name for the car, or none: the Gallardo's handling
