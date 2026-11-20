@@ -1945,7 +1945,7 @@ final class CarConverter {
     }
 
     private static final class VltClass {
-        int layout;
+        int layout, layoutAt;
         final Map<Integer, int[]> fields = new HashMap<>();  // type, offset, size, count, flags
     }
 
@@ -2026,6 +2026,7 @@ final class CarConverter {
                     VltClass c = new VltClass();
                     c.layout = i32(vlt, r[4] + 16);
                     int f = fixVlt.get(r[4] + 12)[3];
+                    c.layoutAt = f;
                     for (int i = 0; i < nf; i++) {
                         int at = f + i * 16;
                         int key = i32(bin.a, at);
@@ -2200,6 +2201,77 @@ final class CarConverter {
             if (index >= cap) return -1;
             if (index >= count) put16(bin.a, base, index + 1);
             return base + align(8, al) + index * el;
+        }
+
+        // Add a field declared by this Xbox Vault class to a node, copying the class-layout
+        // default value and its nested BIN fixups. This is required by PC VltEd scripts that
+        // add optional arrays/fields before populating them.
+        String addField(String cls, String node, String field, Integer requestedCount) {
+            int classKey = attribKey(cls);
+            VltClass vc = classes.get(classKey);
+            if (vc == null) return "class definition is missing";
+            int fieldKey;
+            try {
+                fieldKey = field.toLowerCase(Locale.ROOT).startsWith("0x")
+                        ? (int) Long.parseLong(field.substring(2), 16) : attribKey(field);
+            } catch (NumberFormatException e) {
+                return "invalid field key";
+            }
+            int[] def = vc.fields.get(fieldKey);
+            if (def == null) return "field is not defined by the Xbox class";
+            long nodeKey = pair(classKey, attribKey(node));
+            Integer atObj = colls.get(nodeKey);
+            if (atObj == null) return "node does not exist";
+            int at = atObj;
+            byte[] header = read(at, 32);
+            int entries = i32(header, 20), names = u16(header, 24);
+            int entriesAt = 32 + names * 4;
+            for (int i = 0; i < entries; i++)
+                if (i32(read(at + entriesAt + i * 12, 4), 0) == fieldKey) return null;
+            int alignment = aligns.getOrDefault(pair(classKey, fieldKey), 4);
+            int sourcePointerAt = vc.layoutAt + def[1];
+            int[] sourceFix = binFix.get(sourcePointerAt);
+            if (sourceFix == null) return "class default value has no BIN pointer";
+            int source = sourceFix[3];
+            int size;
+            try {
+                size = valueSize(source, def, alignment);
+            } catch (RuntimeException e) {
+                return "class default value is malformed";
+            }
+            if (source < 0 || size <= 0 || source > bin.n - size) return "class default value is out of range";
+            byte[] original = read(at, entriesAt + entries * 12);
+            byte[] record = Arrays.copyOf(original, original.length + 12);
+            put32(record, 20, entries + 1);
+            int newEntryAt = entriesAt + entries * 12;
+            put32(record, newEntryAt, fieldKey);
+            put32(record, newEntryAt + 4, 0);
+            put16(record, newEntryAt + 8, 0);
+            put16(record, newEntryAt + 10, 0);
+            newVlt.zeros(align(newVlt.n, 8) - newVlt.n);
+            int newAt = dataEnd + newVlt.n;
+            for (int i = 0; i < entries; i++) {
+                int oldPointerAt = at + entriesAt + i * 12 + 4;
+                int[] oldFix = allFix(oldPointerAt);
+                if (oldFix != null)
+                    addFixVlt(new int[] {newAt + entriesAt + i * 12 + 4, oldFix[1], oldFix[2], oldFix[3]});
+            }
+            int copiedValue = copy(source, size);
+            addFixVlt(new int[] {newAt + newEntryAt + 4, sourceFix[1], sourceFix[2], copiedValue});
+            newVlt.add(record);
+            int[] row = null;
+            for (int[] r : rows) if (r[1] == COLL_ROW && r[4] == at) { row = r; break; }
+            if (row == null) for (int[] r : newRows) if (r[1] == COLL_ROW && r[4] == at) { row = r; break; }
+            if (row == null) return "node index row is missing";
+            row[3] = record.length;
+            row[4] = newAt;
+            colls.put(nodeKey, newAt);
+            if (requestedCount != null) {
+                if ((def[4] & 1) == 0) return "requested count supplied for a scalar field";
+                String why = resizeArray(cls, node, field, requestedCount);
+                if (why != null) return why;
+            }
+            return null;
         }
 
         // Resize an existing VltEd array without changing its element storage. Binary's common
@@ -2396,7 +2468,8 @@ final class CarConverter {
         for (String line : latin(script, 0, script.length).split("\n")) {
             String t = line.trim();
             if (t.isEmpty() || t.startsWith("#") || t.startsWith("//")) continue;
-            String[] w = t.split("\\s+");
+            List<String> tokens = endTokens(t);
+            String[] w = tokens.toArray(new String[0]);
             String op = w[0], cls = w.length > 1 ? w[1] : "";
             if (cls.equals("emitterdata") || cls.equals("emittergroup")) {
                 skipped.merge("unsupported " + op + " " + cls, 1, Integer::sum);
@@ -2490,8 +2563,18 @@ final class CarConverter {
                 String why = v.renameNode(cls, w[2], w[3]);
                 if (why != null) skipped.merge("rename " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
                 else done++;
-            } else if (op.equals("add_field") && w.length > 3) {
-                skipped.merge(op + " " + cls + "." + w[3], 1, Integer::sum);
+            } else if (op.equals("add_field") && w.length >= 4) {
+                Integer count = null;
+                if (w.length >= 5) {
+                    try { count = Integer.parseInt(w[4]); }
+                    catch (NumberFormatException e) {
+                        skipped.merge("add_field " + cls + "." + w[3] + ": invalid count", 1, Integer::sum);
+                        continue;
+                    }
+                }
+                String why = v.addField(cls, w[2], w[3], count);
+                if (why != null) skipped.merge("add_field " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
+                else done++;
             } else {
                 // Never silently discard an operation: unsupported VltEd commands can
                 // carry handling, sound, lighting, or upgrade behavior required by a mod.
