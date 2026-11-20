@@ -90,6 +90,10 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "GRADLE_ARGS=-PversionCode=$((${{ github.run_number }} + 100)) -PversionName=$name" >> "$GITHUB_ENV"
 
+      - name: Unit tests
+        shell: cmd
+        run: call gradlew.bat testDebugUnitTest
+
       - name: Build
         shell: cmd
         run: call build.bat
