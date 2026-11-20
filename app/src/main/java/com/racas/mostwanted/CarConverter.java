@@ -2840,15 +2840,18 @@ final class CarConverter {
                         } else {
                             List<String> words = endTokens(value);
                             if (!words.isEmpty() && !value.startsWith("[") && !value.startsWith("{") && !value.startsWith("}")) {
-                                endCommands.merge(words.get(0).toLowerCase(Locale.ROOT), 1, Integer::sum);
-                                for (int wi = 1; wi < words.size(); wi++) {
-                                    String token = words.get(wi).replace((char) 92, '/');
-                                    String lowerToken = token.toLowerCase(Locale.ROOT);
-                                    if (lowerToken.contains("/") || lowerToken.matches(".*\\.(bin|bun|lzc|gin|wav|fng|dds|tga|png|txt)$")) {
-                                        String target = endTargetClass(lowerToken);
-                                        endTargets.merge(target, 1, Integer::sum);
-                                    }
+                                String command = words.get(0).toLowerCase(Locale.ROOT);
+                                if (command.equals("append") && words.size() > 1) {
+                                    endTargets.merge("appended .end scripts", 1, Integer::sum);
+                                } else if (command.equals("move_file") && words.size() == 6) {
+                                    endPathTarget(endTargets, "move source", words.get(4));
+                                    endPathTarget(endTargets, "move destination", words.get(5));
+                                } else if (command.equals("add_or_replace_texture") && words.size() == 7) {
+                                    endPathTarget(endTargets, "texture source", words.get(6));
+                                } else if ((command.equals("import") || command.equals("import_all")) && words.size() == 5) {
+                                    endPathTarget(endTargets, command + " source", words.get(4));
                                 }
+                                if (!command.startsWith("[")) endCommands.merge(command, 1, Integer::sum);
                             }
                         }
                     }
@@ -2906,6 +2909,12 @@ final class CarConverter {
         Matcher m = Pattern.compile("\\\"([^\\\"]*)\\\"|'([^']*)'|(\\S+)").matcher(line);
         while (m.find()) out.add(m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3));
         return out;
+    }
+
+    private static void endPathTarget(Map<String, Integer> targets, String role, String rawPath) {
+        String path = rawPath.replace((char) 92, '/').toLowerCase(Locale.ROOT);
+        String kind = path.startsWith("/") || path.matches("^[a-z]:/.*") ? "absolute PC path" : "relative mod path";
+        targets.merge(role + ": " + kind + " -> " + endTargetClass(path), 1, Integer::sum);
     }
 
     private static String endTargetClass(String path) {
