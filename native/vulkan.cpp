@@ -201,7 +201,8 @@ float4 psmain(O i) : SV_Target {
     // Soft screen-space material groups. These are confidence masks, not semantic
     // object IDs: the D3D8 frame exposes the composed image at this stage.
     int weatherMode = (int)weather.x;
-    float materialGradeStrength = weatherMode > 0 ? saturate(weather.z) : 0.0;
+    // Apply color_grade once at the final blend below; using it here as well squared its strength.
+    float materialGradeStrength = weatherMode > 0 ? 1.0 : 0.0;
     float3 sourceColor = max(c, 0.0);
     float materialLuma = Luma(sourceColor);
     float cMin = min(c.r, min(c.g, c.b));
@@ -271,40 +272,40 @@ float4 psmain(O i) : SV_Target {
         // Softer scene-adaptive grade: restrained saturation, gentle contrast and natural highlight retention.
         float sceneLuma = Luma(max(c, 0.0));
         float3 toneTint = float3(1.0, 1.0, 1.0);
-        float contrast = 1.032;
-        float saturation = 1.052;
+        float contrast = 1.050;
+        float saturation = 1.240;
         float exposure = 1.006;
         float daylightMix = 0.12;
         float shadowLift = 0.006;
         if (weatherMode == 1) {
             // AUTO blends continuously between clear and rain instead of switching abruptly.
             float rainMix = smoothstep(0.12, 0.88, weatherState);
-            contrast = lerp(1.032, 1.040, rainMix);
-            saturation = lerp(1.058, 1.040, rainMix);
+            contrast = lerp(1.052, 1.055, rainMix);
+            saturation = lerp(1.270, 1.205, rainMix);
             exposure = lerp(1.006, 0.998, rainMix);
             toneTint = lerp(float3(1.012, 1.006, 0.996), float3(0.994, 1.004, 1.018), rainMix);
             shadowLift = lerp(0.006, 0.009, rainMix);
         } else if (weatherState == 0.0) { // clear
-            contrast = 1.042;
-            saturation = 1.052;
+            contrast = 1.052;
+            saturation = 1.260;
             exposure = 1.012;
             toneTint = float3(1.012, 1.006, 0.994);
         } else if (weatherState == 1.0) { // rain
-            contrast = 1.040;
-            saturation = 1.038;
+            contrast = 1.055;
+            saturation = 1.205;
             exposure = 0.998;
             toneTint = float3(0.994, 1.004, 1.018);
             shadowLift = 0.009;
         } else if (weatherState == 2.0) { // cloudy
-            contrast = 1.028;
-            saturation = 1.038;
-            exposure = 1.018;
+            contrast = 1.045;
+            saturation = 1.185;
+            exposure = 1.005;
             toneTint = float3(1.006, 1.010, 1.014);
             shadowLift = 0.012;
         } else if (weatherState == 3.0) { // sunset
-            contrast = 1.034;
-            saturation = 1.052;
-            exposure = 1.004;
+            contrast = 1.050;
+            saturation = 1.245;
+            exposure = 1.000;
             toneTint = float3(1.028, 1.012, 0.978);
             daylightMix = 0.20;
         }
@@ -318,12 +319,12 @@ float4 psmain(O i) : SV_Target {
         c = (c - 0.48) * contrast + 0.48;
         // Smooth shoulder and toe: retain bright paint/sun detail and open shadows without grey haze.
         float3 highlight = max(c - 0.70, 0.0);
-        c -= highlight * (0.22 + 0.08 * saturate((c - 0.70) / 0.30));
+        c -= highlight * (0.30 + 0.10 * saturate((c - 0.70) / 0.30));
         float shadowMask = 1.0 - smoothstep(0.012, 0.22, sceneLuma);
         c += shadowMask * shadowLift;
         // Fine, restrained local contrast: stronger in midtones, fades in deep shadows/highlights.
         float midMask = smoothstep(0.08, 0.24, sceneLuma) * (1.0 - smoothstep(0.72, 0.94, sceneLuma));
-        c = lerp(c, (c - 0.46) * 1.012 + 0.46, midMask);
+        c = lerp(c, (c - 0.46) * 1.018 + 0.46, midMask);
     }
     c = lerp(ungradedColor, c, saturate(weather.z));
     c = saturate(c) * opts.w;
