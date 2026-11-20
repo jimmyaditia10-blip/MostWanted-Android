@@ -1678,10 +1678,14 @@ def apply_script(main, fe, path):
             if (attrib_key(cls), attrib_key(node)) not in v.colls:
                 skipped["update of %s %s" % (cls, node)] += 1
                 continue
-            why = v.set_value(cls, node, name, index, w[4], w[5])
-            if why:
-                skipped["%s.%s: %s" % (cls, name, why)] += 1
-            else:
+            updated = False
+            for pair_at in range(4, len(w) - 1, 2):
+                why = v.set_value(cls, node, name, index, w[pair_at], w[pair_at + 1])
+                if why:
+                    skipped["%s.%s: %s" % (cls, name, why)] += 1
+                else:
+                    updated = True
+            if updated:
                 done += 1
         elif op == "delete_node":
             why = v.delete(cls, w[2])
