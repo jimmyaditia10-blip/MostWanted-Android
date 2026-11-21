@@ -9,7 +9,7 @@ name: Build
 
 on:
   push:
-    branches: ["feature/lightning-mcqueen-aura"]
+    branches: ["feature/lightning-mcqueen-aura", "feature/lightning-particle-mask-v4"]
     tags: ["v*"]
   workflow_dispatch:
 
