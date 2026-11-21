@@ -38,4 +38,21 @@ public class CarConverterScriptParserTest {
         CarConverter.endTokens("update_field pvehicle car label Class \"unfinished");
     }
 
+    @Test public void preservesCommentMarkersInsideUnquotedPaths() {
+        assertEquals(Arrays.asList("move_file", "override", "relative", "absolute", "C:\\mods\\car#1.bin", "folder//part.gin"),
+                CarConverter.endTokens("move_file override relative absolute C:\\mods\\car#1.bin folder//part.gin"));
+    }
+
+    @Test public void stripsWhitespaceDelimitedInlineComments() {
+        assertEquals(Arrays.asList("update_field", "pvehicle", "flipcar", "label", "Class", "Brian O'Connor"),
+                CarConverter.endTokens("update_field pvehicle flipcar label Class \"Brian O'Connor\" // note"));
+        assertEquals(Arrays.asList("delete_node", "pvehicle", "flipcar"),
+                CarConverter.endTokens("delete_node pvehicle flipcar ; cleanup"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsUnterminatedSingleQuotedTokens() {
+        CarConverter.endTokens("update_field pvehicle flipcar label 'unfinished");
+    }
+
 }
