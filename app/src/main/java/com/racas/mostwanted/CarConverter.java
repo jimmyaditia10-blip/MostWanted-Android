@@ -3271,41 +3271,30 @@ final class CarConverter {
         if (line == null) return out;
         StringBuilder token = new StringBuilder();
         char quote = 0;
-        boolean escaped = false, started = false;
+        boolean started = false;
         for (int i = 0; i < line.length(); i++) {
             char c = line.charAt(i);
-            if (escaped) {
-                token.append(c);
-                escaped = false;
-                started = true;
-                continue;
-            }
-            if (c == '\\\\' && quote != 0) {
-                // Preserve ordinary Windows path separators; only consume escapes for
-                // the active quote or another backslash.
-                if (i + 1 < line.length() && (line.charAt(i + 1) == quote || line.charAt(i + 1) == '\\\\')) {
-                    escaped = true;
-                    continue;
-                }
-                token.append(c);
-                started = true;
-                continue;
-            }
             if (quote != 0) {
-                if (c == quote) quote = 0;
-                else token.append(c);
+                if (c == quote) {
+                    quote = 0;
+                } else if (c == (char) 92 && i + 1 < line.length()
+                        && (line.charAt(i + 1) == quote || line.charAt(i + 1) == (char) 92)) {
+                    token.append(line.charAt(++i));
+                } else {
+                    token.append(c);
+                }
                 started = true;
                 continue;
             }
-            if (c == '"' || c == '\\'') {
+            if (c == '"' || c == (char) 39) {
                 quote = c;
                 started = true;
-                continue;
-            }
-            if ((c == ';' || c == '#') && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) break;
-            if (c == '/' && i + 1 < line.length() && line.charAt(i + 1) == '/'
-                    && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) break;
-            if (Character.isWhitespace(c)) {
+            } else if ((c == ';' || c == '#') && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) {
+                break;
+            } else if (c == '/' && i + 1 < line.length() && line.charAt(i + 1) == '/'
+                    && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) {
+                break;
+            } else if (Character.isWhitespace(c)) {
                 if (started) {
                     out.add(token.toString());
                     token.setLength(0);
