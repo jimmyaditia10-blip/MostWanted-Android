@@ -1176,9 +1176,9 @@ void DrawSaveNotice() {
 }
 
 void DrawLightningAura() {
-    // Draw in the Vulkan/ImGui foreground after the game scene. The geometry is generated
-    // in car-local space, transformed by the sampled body pose, then projected by the live
-    // player's camera. This keeps the effect attached to the car without touching D3D state.
+    // Draw the native streak replacements in the Vulkan/ImGui foreground after the game scene.
+    // Their sampled endpoints are already in car-local space and are projected with the same
+    // sampled body pose and live player camera.
     const float intensity = lightning_aura::IntensityForSpeed(lightning_aura::MeasuredSpeedKmh());
     if (intensity <= 0.0f || !Racing() || g_active) return;
 
@@ -1223,9 +1223,16 @@ void DrawLightningAura() {
                out.y > -screen.y && out.y < screen.y * 2;
     };
 
-    lightning_aura::Vertex vertices[lightning_aura::kVertexCount];
-    const size_t count = lightning_aura::BuildVertices(intensity, float(ImGui::GetTime()),
-                                                        vertices, lightning_aura::kVertexCount);
+    // Do not synthesize independent streaks: only render when the game's native white
+    // speed-streak pass has published samples for this frame.
+    lightning_aura::ParticleLine native_lines[256]{};
+    const size_t line_count = lightning_aura::CopyNativeSpeedStreaks(native_lines, std::size(native_lines));
+    if (!line_count) return;
+    constexpr size_t kMaxMaskVertices = 256 * lightning_aura::kParticleMaskVerticesPerLine;
+    lightning_aura::Vertex vertices[kMaxMaskVertices]{};
+    const size_t count = lightning_aura::BuildParticleMaskVertices(
+        lightning_aura::MeasuredSpeedKmh(), float(ImGui::GetTime()), native_lines, line_count,
+        vertices, kMaxMaskVertices);
     if (!count) return;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float scale = screen.y / 720.0f;
