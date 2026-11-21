@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <mutex>
 
 namespace game::lightning_aura {
 namespace {
@@ -12,6 +13,9 @@ constexpr float kTwoPi = 2.0f * kPi;
 constexpr float kHalfWidth = 1.35f, kHalfLength = 2.25f, kHeight = 1.15f;
 constexpr float kMinLineLengthSq = 0.0004f;
 std::atomic<float> g_measured_speed_kmh{0.0f};
+std::mutex g_streak_mutex;
+ParticleLine g_native_streaks[256]{};
+std::size_t g_native_streak_count = 0;
 float Hash01(std::uint32_t v) noexcept {
     v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16;
     return float(v & 0x00ffffffu) / float(0x01000000u);
@@ -65,6 +69,27 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
     }
     return at;
 }
+
+void PublishNativeSpeedStreaks(const ParticleLine* lines, std::size_t line_count) noexcept {
+    std::lock_guard<std::mutex> lock(g_streak_mutex);
+    g_native_streak_count = 0;
+    if (!lines) return;
+    const std::size_t count = std::min<std::size_t>(line_count, 256);
+    for (std::size_t i=0; i<count; ++i) {
+        const ParticleLine& p=lines[i];
+        if (!Finite3(p.start_x,p.start_y,p.start_z) || !Finite3(p.end_x,p.end_y,p.end_z) ||
+            !std::isfinite(p.alpha) || p.alpha<=0.001f) continue;
+        g_native_streaks[g_native_streak_count++]=p;
+    }
+}
+std::size_t CopyNativeSpeedStreaks(ParticleLine* output, std::size_t capacity) noexcept {
+    if (!output || !capacity) return 0;
+    std::lock_guard<std::mutex> lock(g_streak_mutex);
+    const std::size_t count=std::min(capacity,g_native_streak_count);
+    std::copy_n(g_native_streaks,count,output);
+    return count;
+}
+
 std::size_t BuildParticleMaskVertices(float speed_kmh, float time_seconds,
                                       const ParticleLine* lines, std::size_t line_count,
                                       Vertex* output, std::size_t capacity) noexcept {
