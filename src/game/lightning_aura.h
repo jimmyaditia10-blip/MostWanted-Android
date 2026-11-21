@@ -35,4 +35,8 @@ inline constexpr std::size_t kParticleMaskVerticesPerLine = kParticleMaskSegment
 std::size_t BuildParticleMaskVertices(float speed_kmh, float time_seconds,
                                       const ParticleLine* lines, std::size_t line_count,
                                       Vertex* output, std::size_t capacity) noexcept;
+
+// Thread-safe bridge for a verified game-side streak capture hook. Samples must be player-car-local.
+void PublishNativeSpeedStreaks(const ParticleLine* lines, std::size_t line_count) noexcept;
+std::size_t CopyNativeSpeedStreaks(ParticleLine* output, std::size_t capacity) noexcept;
 }  // namespace game::lightning_aura
