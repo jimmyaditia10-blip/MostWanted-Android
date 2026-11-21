@@ -43,6 +43,22 @@ public class CarConverterBinaryPackageTest {
         assertArrayEquals(Files.readAllBytes(strings.toPath()), carFiles.get("Assets/Install_Strings"));
     }
 
+    @Test public void rejectsTraversalInBinaryMoveFileSource() throws Exception {
+        File root = Files.createTempDirectory("binary-source-traversal").toFile();
+        File script = new File(root, "install-strings");
+        Files.write(script.toPath(), ("[VERSN2]\\n"
+                + "move_file override relative absolute ../outside SOUND\\\\ENGINE\\\\bad.gin\\n")
+                .getBytes(StandardCharsets.ISO_8859_1));
+        Map<String, File> source = new LinkedHashMap<>();
+        source.put("Assets/Install_Strings", script);
+        try {
+            CarConverter.resolveBinaryFiles(source, line -> {});
+            fail("source traversal must be rejected");
+        } catch (java.io.IOException expected) {
+            assertTrue(expected.getMessage().contains("unsafe Binary move_file source"));
+        }
+    }
+
     @Test public void resolvesBinaryMoveFileForNonGeometryAssetsAndRejectsTraversal() throws Exception {
         File root = Files.createTempDirectory("binary-move-assets").toFile();
         File sound = new File(root, "sound");
