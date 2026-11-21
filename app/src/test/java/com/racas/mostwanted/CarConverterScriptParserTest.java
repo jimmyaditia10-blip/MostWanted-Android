@@ -26,4 +26,16 @@ public class CarConverterScriptParserTest {
         assertEquals(Arrays.asList("move_file", "override", "relative", "absolute", "source file", "SOUND/ENGINE/A.gin"),
                 CarConverter.endTokens("move_file override relative absolute 'source file' SOUND/ENGINE/A.gin"));
     }
+    @Test public void parsesEscapedQuotesAndInlineComments() {
+        assertEquals(Arrays.asList("update_field", "pvehicle", "car", "label", "Class", "A \"quoted\" name"),
+                CarConverter.endTokens("update_field pvehicle car label Class \"A \\\"quoted\\\" name\" ; comment"));
+        assertEquals(Arrays.asList("move_file", "override", "relative", "absolute", "SOUND\\ENGINE\\a.gin", "SOUND\\ENGINE\\b.gin"),
+                CarConverter.endTokens("move_file override relative absolute SOUND\\ENGINE\\a.gin SOUND\\ENGINE\\b.gin # note"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsUnterminatedQuotedTokens() {
+        CarConverter.endTokens("update_field pvehicle car label Class \"unfinished");
+    }
+
 }
