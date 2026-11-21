@@ -13,5 +13,12 @@ int main() {
     assert(std::fabs(out.front().x-lines[0].start_x)<1e-6f);
     assert(std::fabs(out[kParticleMaskVerticesPerLine-1].z-lines[0].end_z)<1e-6f);
     assert(BuildParticleMaskVertices(100,0.25f,lines,2,out.data(),out.size())==0);
+    PublishNativeSpeedStreaks(lines,2);
+    ParticleLine copied[4]{};
+    const auto copied_count=CopyNativeSpeedStreaks(copied,4);
+    assert(copied_count==1); // zero-length line is discarded by the bridge
+    assert(std::fabs(copied[0].start_x-lines[0].start_x)<1e-6f);
+    PublishNativeSpeedStreaks(nullptr,0);
+    assert(CopyNativeSpeedStreaks(copied,4)==0);
     return 0;
 }
