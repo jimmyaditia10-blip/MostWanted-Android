@@ -2501,148 +2501,104 @@ final class CarConverter {
 
     private static void applyScript(Vault main, Vault fe, byte[] script, Consumer<String> log) throws Failure {
         Map<String, Integer> skipped = new TreeMap<>();
-        int done = 0;
-        for (String line : latin(script, 0, script.length).split("\n")) {
-            String t = line.trim();
+        int done = 0, lineNumber = 0;
+        String source = latin(script, 0, script.length);
+        if (!source.isEmpty() && source.charAt(0) == '\uFEFF') source = source.substring(1);
+        for (String raw : source.split("\\r?\\n", -1)) {
+            lineNumber++;
+            String t = raw.trim();
             if (t.isEmpty() || t.startsWith("#") || t.startsWith("//") || t.startsWith(";")) continue;
-            List<String> tokens = endTokens(t);
-            String[] w = tokens.toArray(new String[0]);
-            String op = w[0].toLowerCase(Locale.ROOT), cls = w.length > 1 ? w[1].toLowerCase(Locale.ROOT) : "";
-            // VltEd scripts begin with a game guard (for example, "game MW").
-            // It selects the target title; it is not a Vault mutation and must
-            // not be reported as an unsupported command.
-            if (op.equals("game")) {
-                if (w.length != 2 || !supportedVltGame(w[1])) {
-                    skipped.merge("unsupported game target " + (w.length > 1 ? w[1] : "[missing]"), 1, Integer::sum);
-                }
+            final List<String> parsed;
+            try { parsed = endTokens(t); }
+            catch (IllegalArgumentException e) {
+                skipped.merge("line " + lineNumber + ": " + e.getMessage(), 1, Integer::sum);
                 continue;
             }
-            if (t.startsWith(";")) continue;
+            if (parsed.isEmpty()) continue;
+            String[] w = parsed.toArray(new String[0]);
+            String op = w[0].toLowerCase(Locale.ROOT), cls = w.length > 1 ? w[1].toLowerCase(Locale.ROOT) : "";
+            if (op.equals("game")) {
+                if (w.length != 2 || !supportedVltGame(w[1]))
+                    skipped.merge("line " + lineNumber + ": unsupported game target " + (w.length > 1 ? w[1] : "[missing]"), 1, Integer::sum);
+                continue;
+            }
             if (cls.equals("emitterdata") || cls.equals("emittergroup")) {
-                skipped.merge("unsupported " + op + " " + cls, 1, Integer::sum);
+                skipped.merge("line " + lineNumber + ": unsupported " + op + " " + cls, 1, Integer::sum);
                 continue;
             }
             Vault v = cls.equals("frontend") ? fe : main;
-            if (op.equals("copy_node") && w.length >= 5) {
-                if (!v.has(cls, w[2])) {
-                    skipped.merge("copy " + cls + " " + w[2] + ": source missing", 1, Integer::sum);
-                    continue;
+            if (op.equals("copy_node")) {
+                if (w.length != 5) skipped.merge("line " + lineNumber + ": copy_node expects 4 arguments", 1, Integer::sum);
+                else if (!v.has(cls, w[2])) skipped.merge("line " + lineNumber + ": copy " + cls + " " + w[2] + ": source missing", 1, Integer::sum);
+                else if (!v.has(cls, w[4])) { v.cloneNode(cls, w[2], w[4], w[3]); done++; }
+            } else if (op.equals("add_node")) {
+                if (w.length != 4) skipped.merge("line " + lineNumber + ": add_node expects 3 arguments", 1, Integer::sum);
+                else if (!v.has(cls, w[2])) skipped.merge("line " + lineNumber + ": add " + cls + " " + w[2] + ": template missing", 1, Integer::sum);
+                else if (!v.has(cls, w[3])) { v.cloneNode(cls, w[2], w[3], w[2]); done++; }
+            } else if (op.equals("update_field")) {
+                if (w.length != 5 && w.length != 6) {
+                    skipped.merge("line " + lineNumber + ": update_field expects 4 or 5 arguments", 1, Integer::sum); continue;
                 }
-                if (v.has(cls, w[4])) continue;  // another add-on's script made it: names are the mods' to clash
-                v.cloneNode(cls, w[2], w[4], w[3]);
-                done++;
-            } else if (op.equals("add_node") && w.length >= 4) {
-                // Binary/VltEd syntax: add_node <class> <parent/template> <new-name>.
-                // Clone the named parent/template so the new node has the class's real field layout.
-                if (!v.has(cls, w[2])) {
-                    skipped.merge("add " + cls + " " + w[2] + ": template missing", 1, Integer::sum);
-                    continue;
-                }
-                if (v.has(cls, w[3])) continue;
-                v.cloneNode(cls, w[2], w[3], w[2]);
-                done++;
-            } else if (op.equals("update_field") && w.length >= 5) {
-                String node = w[2];
                 Matcher m = FIELD.matcher(w[3]);
-                if (!m.matches()) {
-                    skipped.merge("update_field: invalid field " + w[3], 1, Integer::sum);
-                    continue;
-                }
-                String name = m.group(1);
-                int index = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
-                String member = w.length > 5 ? w[4] : null, text = w[w.length - 1];
-                if (!v.has(cls, node)) {
-                    skipped.merge("update of " + cls + " " + node, 1, Integer::sum);
-                    continue;
-                }
-                if (name.equals("MODEL")) {
-                    v.setModel(node, text);
-                    done++;
-                    continue;
-                }
-                String why = v.setValue(cls, node, name, index, member, text);
-                if (why != null) skipped.merge(cls + "." + name + ": " + why, 1, Integer::sum);
+                if (!m.matches()) { skipped.merge("line " + lineNumber + ": update_field invalid field " + w[3], 1, Integer::sum); continue; }
+                int index;
+                try { index = m.group(2) == null ? 0 : Integer.parseInt(m.group(2)); }
+                catch (NumberFormatException e) { skipped.merge("line " + lineNumber + ": update_field index out of range", 1, Integer::sum); continue; }
+                String node = w[2], name = m.group(1), member = w.length == 6 ? w[4] : null, value = w[w.length - 1];
+                if (!v.has(cls, node)) { skipped.merge("line " + lineNumber + ": update of " + cls + " " + node + ": node missing", 1, Integer::sum); continue; }
+                if (name.equals("MODEL")) { v.setModel(node, value); done++; continue; }
+                String why = v.setValue(cls, node, name, index, member, value);
+                if (why != null) skipped.merge("line " + lineNumber + ": " + cls + "." + name + ": " + why, 1, Integer::sum);
                 else done++;
-            } else if (op.equals("resize_field") && w.length >= 5) {
+            } else if (op.equals("resize_field") || op.equals("resize_collection")) {
+                if (w.length != 5) { skipped.merge("line " + lineNumber + ": " + op + " expects 4 arguments", 1, Integer::sum); continue; }
                 int count;
-                try {
-                    count = Integer.parseInt(w[4]);
-                } catch (NumberFormatException e) {
-                    skipped.merge("resize " + cls + "." + w[3] + ": invalid count", 1, Integer::sum);
-                    continue;
-                }
+                try { count = Integer.parseInt(w[4]); }
+                catch (NumberFormatException e) { skipped.merge("line " + lineNumber + ": " + op + " " + cls + "." + w[3] + ": invalid count", 1, Integer::sum); continue; }
+                if (count < 0) { skipped.merge("line " + lineNumber + ": " + op + " " + cls + "." + w[3] + ": negative count", 1, Integer::sum); continue; }
                 String why = v.resizeArray(cls, w[2], w[3], count);
-                if (why != null) skipped.merge("resize " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
+                if (why != null) skipped.merge("line " + lineNumber + ": " + op + " " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
                 else done++;
-            } else if (op.equals("update_collection") && w.length >= 6) {
-                // VltEd collection updates use the same indexed field/member storage as update_field.
-                String node = w[2];
+            } else if (op.equals("update_collection")) {
+                if (w.length < 6 || ((w.length - 4) & 1) != 0) { skipped.merge("line " + lineNumber + ": update_collection expects field followed by member/value pairs", 1, Integer::sum); continue; }
                 Matcher m = FIELD.matcher(w[3]);
-                if (!m.matches()) {
-                    skipped.merge("update_collection: invalid field " + w[3], 1, Integer::sum);
-                    continue;
-                }
-                String name = m.group(1);
-                int index = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
-                if (!v.has(cls, node)) {
-                    skipped.merge("update of " + cls + " " + node, 1, Integer::sum);
-                    continue;
-                }
-                boolean updated = false;
+                if (!m.matches()) { skipped.merge("line " + lineNumber + ": update_collection invalid field " + w[3], 1, Integer::sum); continue; }
+                int index;
+                try { index = m.group(2) == null ? 0 : Integer.parseInt(m.group(2)); }
+                catch (NumberFormatException e) { skipped.merge("line " + lineNumber + ": update_collection index out of range", 1, Integer::sum); continue; }
+                String node = w[2], name = m.group(1);
+                if (!v.has(cls, node)) { skipped.merge("line " + lineNumber + ": update of " + cls + " " + node + ": node missing", 1, Integer::sum); continue; }
+                boolean allUpdated = true;
                 for (int pairAt = 4; pairAt + 1 < w.length; pairAt += 2) {
                     String why = v.setValue(cls, node, name, index, w[pairAt], w[pairAt + 1]);
-                    if (why != null) skipped.merge(cls + "." + name + ": " + why, 1, Integer::sum);
-                    else updated = true;
+                    if (why != null) { allUpdated = false; skipped.merge("line " + lineNumber + ": " + cls + "." + name + ": " + why, 1, Integer::sum); }
                 }
-                if (updated) done++;
-            } else if (op.equals("resize_collection") && w.length >= 5) {
-                int count;
-                try {
-                    count = Integer.parseInt(w[4]);
-                } catch (NumberFormatException e) {
-                    skipped.merge("resize_collection " + cls + "." + w[3] + ": invalid count", 1, Integer::sum);
-                    continue;
-                }
-                String why = v.resizeArray(cls, w[2], w[3], count);
-                if (why != null) skipped.merge("resize_collection " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
-                else done++;
-            } else if (op.equals("delete_node") && w.length >= 3) {
-                String why = v.deleteNode(cls, w[2]);
-                if (why != null) skipped.merge("delete " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
-                else done++;
-            } else if (op.equals("rename_node") && w.length >= 4) {
-                String why = v.renameNode(cls, w[2], w[3]);
-                if (why != null) skipped.merge("rename " + cls + " " + w[2] + ": " + why, 1, Integer::sum);
-                else done++;
-            } else if (op.equals("add_field") && w.length >= 4) {
+                if (allUpdated) done++;
+            } else if (op.equals("delete_node")) {
+                if (w.length != 3) skipped.merge("line " + lineNumber + ": delete_node expects 2 arguments", 1, Integer::sum);
+                else { String why = v.deleteNode(cls, w[2]); if (why != null) skipped.merge("line " + lineNumber + ": delete " + cls + " " + w[2] + ": " + why, 1, Integer::sum); else done++; }
+            } else if (op.equals("rename_node")) {
+                if (w.length != 4) skipped.merge("line " + lineNumber + ": rename_node expects 3 arguments", 1, Integer::sum);
+                else { String why = v.renameNode(cls, w[2], w[3]); if (why != null) skipped.merge("line " + lineNumber + ": rename " + cls + " " + w[2] + ": " + why, 1, Integer::sum); else done++; }
+            } else if (op.equals("add_field")) {
+                if (w.length != 4 && w.length != 5) { skipped.merge("line " + lineNumber + ": add_field expects 3 or 4 arguments", 1, Integer::sum); continue; }
                 Integer count = null;
-                if (w.length >= 5) {
+                if (w.length == 5) {
                     try { count = Integer.parseInt(w[4]); }
-                    catch (NumberFormatException e) {
-                        skipped.merge("add_field " + cls + "." + w[3] + ": invalid count", 1, Integer::sum);
-                        continue;
-                    }
+                    catch (NumberFormatException e) { skipped.merge("line " + lineNumber + ": add_field " + cls + "." + w[3] + ": invalid count", 1, Integer::sum); continue; }
+                    if (count < 0) { skipped.merge("line " + lineNumber + ": add_field " + cls + "." + w[3] + ": negative count", 1, Integer::sum); continue; }
                 }
                 String why = v.addField(cls, w[2], w[3], count);
-                if (why != null) skipped.merge("add_field " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
+                if (why != null) skipped.merge("line " + lineNumber + ": add_field " + cls + "." + w[3] + ": " + why, 1, Integer::sum);
                 else done++;
-            } else {
-                // Never silently discard an operation: unsupported VltEd commands can
-                // carry handling, sound, lighting, or upgrade behavior required by a mod.
-                skipped.merge("unsupported command " + op, 1, Integer::sum);
-            }
+            } else skipped.merge("line " + lineNumber + ": unsupported command " + op, 1, Integer::sum);
         }
         log.accept("vault: " + done + " script lines applied");
-        for (Map.Entry<String, Integer> e : skipped.entrySet()) log.accept("  skipped " + e.getKey() + " (" + e.getValue() + ")");
-        // Fail closed: a PC VltEd script may control engine audio, turbo, brakes, lights,
-        // handling and upgrade behavior. Writing a partly modified Xbox Vault would make
-        // the mod look installed while silently losing required behavior. Keep all changes
-        // in memory and reject the build if even one required operation was not translated.
+        for (Map.Entry<String, Integer> e : skipped.entrySet()) log.accept("  skipped " + e.getKey() + " (x" + e.getValue() + ")");
         if (!skipped.isEmpty()) {
             Map.Entry<String, Integer> first = skipped.entrySet().iterator().next();
-            throw new Failure(Failure.Reason.UNSUPPORTED,
-                    "VltEd conversion incomplete: " + skipped.size() + " unsupported operation types; first: "
-                            + first.getKey() + " (x" + first.getValue() + "). No partial Vault was written.");
+            throw new Failure(Failure.Reason.UNSUPPORTED, "VltEd conversion incomplete: " + skipped.size()
+                    + " unsupported operation types; first: " + first.getKey() + " (x" + first.getValue() + "). No partial Vault was written.");
         }
     }
 
