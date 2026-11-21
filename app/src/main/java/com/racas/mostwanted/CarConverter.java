@@ -3268,8 +3268,56 @@ final class CarConverter {
     // Binary Endscript supports quoted paths and whitespace; preserve a quoted path as one argument.
     static List<String> endTokens(String line) {
         List<String> out = new ArrayList<>();
-        Matcher m = Pattern.compile("\\\"([^\\\"]*)\\\"|'([^']*)'|(\\S+)").matcher(line);
-        while (m.find()) out.add(m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3));
+        if (line == null) return out;
+        StringBuilder token = new StringBuilder();
+        char quote = 0;
+        boolean escaped = false, started = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (escaped) {
+                token.append(c);
+                escaped = false;
+                started = true;
+                continue;
+            }
+            if (c == '\\\\' && quote != 0) {
+                // Preserve ordinary Windows path separators; only consume escapes for
+                // the active quote or another backslash.
+                if (i + 1 < line.length() && (line.charAt(i + 1) == quote || line.charAt(i + 1) == '\\\\')) {
+                    escaped = true;
+                    continue;
+                }
+                token.append(c);
+                started = true;
+                continue;
+            }
+            if (quote != 0) {
+                if (c == quote) quote = 0;
+                else token.append(c);
+                started = true;
+                continue;
+            }
+            if (c == '"' || c == '\\'') {
+                quote = c;
+                started = true;
+                continue;
+            }
+            if ((c == ';' || c == '#') && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) break;
+            if (c == '/' && i + 1 < line.length() && line.charAt(i + 1) == '/'
+                    && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) break;
+            if (Character.isWhitespace(c)) {
+                if (started) {
+                    out.add(token.toString());
+                    token.setLength(0);
+                    started = false;
+                }
+            } else {
+                token.append(c);
+                started = true;
+            }
+        }
+        if (quote != 0) throw new IllegalArgumentException("unterminated quoted token");
+        if (started) out.add(token.toString());
         return out;
     }
 
