@@ -47,24 +47,41 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
     if (!output || capacity < kVertexCount || !std::isfinite(intensity) ||
         !std::isfinite(time_seconds) || time_seconds < 0.0f || intensity <= 0.0f) return 0;
     intensity = Clamp01(intensity);
-    const float phase = time_seconds * (5.0f + 4.0f * intensity);
+    const float phase = time_seconds * (8.0f + 12.0f * intensity);
+    // Local-space emission points: three across each bumper, plus both side skirts.
+    // The z sign is mirrored so the same pattern wraps both ends of the vehicle.
+    struct Root { float x, y, z, dx, dy, dz; };
+    constexpr Root roots[kBoltCount] = {
+        {-1.05f,0.22f, 2.18f,-0.34f,0.72f, 0.62f}, {0.0f,0.30f, 2.24f,0.08f,0.94f,0.36f},
+        { 1.05f,0.22f, 2.18f, 0.38f,0.72f,0.58f}, {-1.18f,0.25f,-2.16f,-0.42f,0.76f,-0.48f},
+        {0.0f,0.30f,-2.22f,-0.06f,0.95f,-0.34f}, {1.18f,0.25f,-2.16f,0.44f,0.74f,-0.48f},
+        {-1.22f,0.28f, 1.05f,-0.92f,0.48f, 0.12f}, {-1.22f,0.28f, 0.0f,-0.98f,0.34f, 0.08f},
+        {-1.22f,0.28f,-1.05f,-0.90f,0.48f,-0.12f}, {1.22f,0.28f, 1.05f,0.92f,0.48f,0.12f},
+        {1.22f,0.28f, 0.0f,0.98f,0.34f,-0.08f}, {1.22f,0.28f,-1.05f,0.90f,0.48f,-0.12f}
+    };
     std::size_t at = 0;
     for (unsigned bolt = 0; bolt < kBoltCount; ++bolt) {
-        const float angle = kTwoPi * (float(bolt) / float(kBoltCount));
-        const float cs = std::cos(angle), sn = std::sin(angle), seed = float(bolt * 17u + 3u);
-        float px = cs * (kHalfWidth + 0.12f), py = sn * (kHalfLength + 0.12f);
-        float pz = 0.18f + 0.16f * std::sin(phase + seed);
+        const Root& root = roots[bolt];
+        const float seed = float(bolt * 17u + 3u);
+        const float pulse = 0.72f + 0.28f * std::sin(phase * 1.35f + seed);
+        const float length = 0.75f + 0.85f * intensity + 0.18f * std::sin(phase + seed);
+        Vec3 dir{root.dx, root.dy, root.dz};
+        const float dl = std::sqrt(std::max(LengthSq(dir), 1.0e-6f));
+        dir = Scale(dir, 1.0f / dl);
+        const Vec3 side = Scale(Cross(dir, Vec3{0,1,0}), 1.0f);
+        Vec3 previous{root.x, root.y, root.z};
         for (unsigned segment = 0; segment < kSegmentsPerBolt; ++segment) {
             const float t = float(segment + 1) / float(kSegmentsPerBolt);
-            const float jitter = (Hash01(bolt*101u + segment*13u + std::uint32_t(time_seconds*12.0f)) - 0.5f) *
-                                 (0.22f + 0.18f*intensity);
-            const float radius = 1.0f + 0.12f*std::sin(phase + seed + t*7.0f);
-            const float nx = cs*(kHalfWidth*radius+jitter)-sn*(jitter*0.7f);
-            const float ny = sn*(kHalfLength*radius+jitter)+cs*(jitter*0.7f);
-            const float nz = kHeight*t + 0.22f*std::sin(phase+seed+t*9.0f);
-            const float brightness = intensity*(0.65f+0.35f*std::sin(phase*1.7f+seed+t*5.0f));
-            output[at++] = {px,py,pz,brightness}; output[at++] = {nx,ny,nz,brightness};
-            px=nx; py=ny; pz=nz;
+            const float jitter = (Hash01(bolt*101u + segment*13u +
+                                  std::uint32_t(time_seconds*18.0f)) - 0.5f) *
+                                  (0.16f + 0.24f*intensity);
+            Vec3 next = Add(Vec3{root.x,root.y,root.z}, Scale(dir, length*t));
+            next = Add(next, Scale(side, jitter));
+            next.y += 0.10f * std::sin(phase + seed + t*8.0f);
+            const float brightness = intensity * pulse * (0.78f + 0.22f*std::sin(phase + seed + t*5.0f));
+            output[at++] = {previous.x,previous.y,previous.z,brightness};
+            output[at++] = {next.x,next.y,next.z,brightness};
+            previous = next;
         }
     }
     return at;
