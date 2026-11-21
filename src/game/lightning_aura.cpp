@@ -79,6 +79,8 @@ void PublishNativeSpeedStreaks(const ParticleLine* lines, std::size_t line_count
         const ParticleLine& p=lines[i];
         if (!Finite3(p.start_x,p.start_y,p.start_z) || !Finite3(p.end_x,p.end_y,p.end_z) ||
             !std::isfinite(p.alpha) || p.alpha<=0.001f) continue;
+        const float dx=p.end_x-p.start_x, dy=p.end_y-p.start_y, dz=p.end_z-p.start_z;
+        if (dx*dx+dy*dy+dz*dz<kMinLineLengthSq) continue;
         g_native_streaks[g_native_streak_count++]=p;
     }
 }
