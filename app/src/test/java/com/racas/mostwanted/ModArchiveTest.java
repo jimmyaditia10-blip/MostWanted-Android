@@ -42,4 +42,39 @@ public class ModArchiveTest {
             root.delete();
         }
     }
+    @Test public void rejectsArchivePathTraversal() throws Exception {
+        File root = Files.createTempDirectory("mod-archive-traversal").toFile();
+        File archive = new File(root, "bad.zip");
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+            zip.putNextEntry(new ZipEntry("../escape.bin"));
+            zip.write(new byte[] {1});
+            zip.closeEntry();
+        }
+        try {
+            ModArchive.read(archive, new File(root, "spool"));
+            fail("path traversal must be rejected");
+        } catch (java.io.IOException expected) {
+            assertTrue(expected.getMessage().contains("unsafe archive entry path"));
+        }
+    }
+
+    @Test public void rejectsCaseCollidingArchivePaths() throws Exception {
+        File root = Files.createTempDirectory("mod-archive-case").toFile();
+        File archive = new File(root, "case.zip");
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive))) {
+            zip.putNextEntry(new ZipEntry("Assets/Install_Attributes"));
+            zip.write(new byte[] {1});
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("assets/install_attributes"));
+            zip.write(new byte[] {2});
+            zip.closeEntry();
+        }
+        try {
+            ModArchive.read(archive, new File(root, "spool"));
+            fail("case collision must be rejected");
+        } catch (java.io.IOException expected) {
+            assertTrue(expected.getMessage().contains("case-colliding"));
+        }
+    }
+
 }
