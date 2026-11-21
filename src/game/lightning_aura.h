@@ -4,25 +4,35 @@
 #include <cstdint>
 
 namespace game::lightning_aura {
-
-// Speed is in km/h. The effect is off below 150 and reaches full intensity at 500.
 float IntensityForSpeed(float speed_kmh) noexcept;
-
-// Speed estimate published by the game-thread player-motion sampler.
 void PublishMeasuredSpeed(float speed_kmh) noexcept;
 float MeasuredSpeedKmh() noexcept;
 
 struct Vertex {
-    float x, y, z;       // car-local coordinates; transformed by the car body matrix by the renderer
-    float intensity;     // 0..1, for the eventual additive yellow/gold pass
+    float x, y, z;
+    float intensity;
 };
 
-// A deterministic, animated bolt mesh in car-local space. Each pair is one line segment.
+// Legacy procedural preview only. Production masking should use BuildParticleMaskVertices.
 inline constexpr std::size_t kBoltCount = 12;
 inline constexpr std::size_t kSegmentsPerBolt = 8;
 inline constexpr std::size_t kVertexCount = kBoltCount * kSegmentsPerBolt * 2;
-
 std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
                           std::size_t capacity) noexcept;
 
+// A line sampled from the game's native white speed streaks. Coordinates must already be
+// converted to player-car-local space; start/end remain anchored to the native line.
+struct ParticleLine {
+    float start_x, start_y, start_z;
+    float end_x, end_y, end_z;
+    float alpha;
+};
+
+// Replaces each native white streak with a narrow, jagged yellow filament while preserving
+// its position, orientation, and length. Returns 0 when speed/effect/inputs are off.
+inline constexpr std::size_t kParticleMaskSegments = 6;
+inline constexpr std::size_t kParticleMaskVerticesPerLine = kParticleMaskSegments * 2;
+std::size_t BuildParticleMaskVertices(float speed_kmh, float time_seconds,
+                                      const ParticleLine* lines, std::size_t line_count,
+                                      Vertex* output, std::size_t capacity) noexcept;
 }  // namespace game::lightning_aura
