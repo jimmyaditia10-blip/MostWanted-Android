@@ -131,7 +131,11 @@ final class ModArchive {
         if (spool.getUsableSpace() < data.length + ROOM) throw new IOException("not enough storage left on the phone");
         if (out.size() % 20 == 19) progress.accept("read " + (out.size() + 1));
         String key = clean(name);
-        if (out.containsKey(key)) throw new IOException("duplicate archive path: " + key);
+        for (String existing : out.keySet()) {
+            if (existing.equalsIgnoreCase(key)) {
+                throw new IOException("duplicate or case-colliding archive path: " + existing + " vs " + key);
+            }
+        }
         File f = new File(spool, String.valueOf(out.size()));
         try (FileOutputStream o = new FileOutputStream(f)) {
             o.write(data);
@@ -159,8 +163,21 @@ final class ModArchive {
         return n == b.length ? b : java.util.Arrays.copyOf(b, n);
     }
 
-    private static String clean(String name) {
-        return name.replace('\\', '/');
+    private static String clean(String name) throws IOException {
+        if (name == null || name.trim().isEmpty()) throw new IOException("empty archive entry path");
+        String path = name.replace('\\', '/');
+        if (path.startsWith("/") || path.matches("^[A-Za-z]:.*"))
+            throw new IOException("absolute archive entry path is not allowed: " + name);
+        StringBuilder normalized = new StringBuilder();
+        for (String part : path.split("/", -1)) {
+            if (part.isEmpty()) continue;
+            if (part.equals(".") || part.equals(".."))
+                throw new IOException("unsafe archive entry path: " + name);
+            if (normalized.length() > 0) normalized.append('/');
+            normalized.append(part);
+        }
+        if (normalized.length() == 0) throw new IOException("empty archive entry path");
+        return normalized.toString();
     }
 
     private static Map<String, File> zip(File file, File spool) throws IOException {
