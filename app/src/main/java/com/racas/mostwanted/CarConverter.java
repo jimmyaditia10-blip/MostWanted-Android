@@ -2495,15 +2495,29 @@ final class CarConverter {
 
     // VltEd's script, the parts of it the Xbox's database holds: nodes and their values. FE_ATTRIB holds the frontend
     // class's nodes, whose definition is in ATTRIBUTES. Smoke with its place moved is not worth new nodes
+    static boolean supportedVltGame(String game) {
+        return game != null && game.trim().equalsIgnoreCase("MW");
+    }
+
     private static void applyScript(Vault main, Vault fe, byte[] script, Consumer<String> log) throws Failure {
         Map<String, Integer> skipped = new TreeMap<>();
         int done = 0;
         for (String line : latin(script, 0, script.length).split("\n")) {
             String t = line.trim();
-            if (t.isEmpty() || t.startsWith("#") || t.startsWith("//")) continue;
+            if (t.isEmpty() || t.startsWith("#") || t.startsWith("//") || t.startsWith(";")) continue;
             List<String> tokens = endTokens(t);
             String[] w = tokens.toArray(new String[0]);
-            String op = w[0], cls = w.length > 1 ? w[1] : "";
+            String op = w[0].toLowerCase(Locale.ROOT), cls = w.length > 1 ? w[1].toLowerCase(Locale.ROOT) : "";
+            // VltEd scripts begin with a game guard (for example, "game MW").
+            // It selects the target title; it is not a Vault mutation and must
+            // not be reported as an unsupported command.
+            if (op.equals("game")) {
+                if (w.length != 2 || !supportedVltGame(w[1])) {
+                    skipped.merge("unsupported game target " + (w.length > 1 ? w[1] : "[missing]"), 1, Integer::sum);
+                }
+                continue;
+            }
+            if (t.startsWith(";")) continue;
             if (cls.equals("emitterdata") || cls.equals("emittergroup")) {
                 skipped.merge("unsupported " + op + " " + cls, 1, Integer::sum);
                 continue;
@@ -2889,7 +2903,10 @@ final class CarConverter {
             String packageRoot = slash < 0 ? "" : script.getKey().substring(0, slash + 1);
             for (String line : body.split("\\r?\\n")) {
                 List<String> words = endTokens(line.trim());
-                if (words.size() != 6 || !words.get(0).equalsIgnoreCase("move_file")) continue;
+                if (words.isEmpty() || !words.get(0).equalsIgnoreCase("move_file")) continue;
+                if (words.size() != 6) {
+                    throw new IOException("malformed Binary move_file command in " + script.getKey() + ": " + line.trim());
+                }
                 String destination = words.get(5).replace((char) 92, '/');
                 // Resolve every Binary move_file payload, not just the two primary car
                 // containers. Sound, logos, scripts and other assets need an explicit
@@ -2905,7 +2922,15 @@ final class CarConverter {
                     throw new IOException("invalid Binary move_file destination: " + destination);
                 }
                 destination = normalizedDestination;
-                String source = words.get(4).replace((char) 92, '/');
+                String source = words.get(4).replace((char) 92, '/').replaceAll("/+", "/");
+                if (source.isEmpty() || source.startsWith("/") || source.matches("^[a-zA-Z]:/.*")) {
+                    throw new IOException("invalid Binary move_file source: " + source);
+                }
+                for (String part : source.split("/")) {
+                    if (part.equals(".") || part.equals("..")) {
+                        throw new IOException("unsafe Binary move_file source: " + source);
+                    }
+                }
                 String wanted = (packageRoot + source).toLowerCase(Locale.ROOT);
                 String base = source.substring(source.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
                 String found = null;
@@ -2928,6 +2953,11 @@ final class CarConverter {
                             + source + " -> " + destination + " (script " + script.getKey() + ")");
                 }
                 String alias = packageRoot + destination;
+                for (String existing : resolved.keySet()) {
+                    if (existing.equalsIgnoreCase(alias) && !existing.equals(alias)) {
+                        throw new IOException("case-insensitive Binary destination collision: " + existing + " vs " + alias);
+                    }
+                }
                 File previous = resolved.get(alias);
                 if (previous != null && !previous.equals(files.get(found)))
                     throw new IOException("conflicting Binary car asset mapping: " + alias);
