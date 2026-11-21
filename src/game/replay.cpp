@@ -1223,16 +1223,12 @@ void DrawLightningAura() {
                out.y > -screen.y && out.y < screen.y * 2;
     };
 
-    // Do not synthesize independent streaks: only render when the game's native white
-    // speed-streak pass has published samples for this frame.
-    lightning_aura::ParticleLine native_lines[256]{};
-    const size_t line_count = lightning_aura::CopyNativeSpeedStreaks(native_lines, std::size(native_lines));
-    if (!line_count) return;
-    constexpr size_t kMaxMaskVertices = 256 * lightning_aura::kParticleMaskVerticesPerLine;
-    lightning_aura::Vertex vertices[kMaxMaskVertices]{};
-    const size_t count = lightning_aura::BuildParticleMaskVertices(
-        lightning_aura::MeasuredSpeedKmh(), float(ImGui::GetTime()), native_lines, line_count,
-        vertices, kMaxMaskVertices);
+    // Animated body-emission bolts: roots sit on the front/rear bumper edges and side skirts.
+    // They are transformed by the recorded body matrix above, so they stay attached while driving.
+    constexpr size_t kBoltVertices = lightning_aura::kVertexCount;
+    lightning_aura::Vertex vertices[kBoltVertices]{};
+    const size_t count = lightning_aura::BuildVertices(
+        intensity, float(ImGui::GetTime()), vertices, kBoltVertices);
     if (!count) return;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float scale = screen.y / 720.0f;
@@ -1240,11 +1236,11 @@ void DrawLightningAura() {
         ImVec2 a, b;
         if (!project(vertices[i], a) || !project(vertices[i + 1], b)) continue;
         const float glow = std::clamp(vertices[i].intensity, 0.0f, 1.0f);
-        const int alpha = int(210.0f * glow);
+        const int alpha = int(225.0f * glow);
         if (alpha < 8) continue;
-        dl->AddLine(a, b, IM_COL32(255, 145, 0, alpha / 3), 7.0f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 196, 24, alpha), 3.0f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 246, 170, std::min(255, alpha + 30)), 1.2f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 130, 0, alpha / 3), 8.0f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 190, 12, alpha), 3.2f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 248, 190, std::min(255, alpha + 35)), 1.25f * scale);
     }
 }
 
