@@ -23,3 +23,15 @@ This commit adds the geometry/masking API to the existing feature branch. It doe
 The runtime now exposes a thread-safe `PublishNativeSpeedStreaks` / `CopyNativeSpeedStreaks` bridge. The existing foreground renderer no longer generates free-running bolts: it renders only when native streak samples are available, using the sampled endpoints as the mask source. The bridge accepts up to 256 valid samples and discards invalid/degenerate lines.
 
 The capture hook itself is still not connected. This deliberately fails closed (no synthetic aura) until the native white speed-streak draw has been identified and its line endpoints can be converted into the player-car-local coordinate space.
+
+## D3D8 adapter progress
+
+- Capture is wired into both DrawVerticesUP and DrawIndexedVertices.
+- The adapter accepts white diffuse XYZ line pairs and paired-edge triangle-strip ribbons, validates finite endpoints/alpha, and rejects degenerate or implausibly long samples.
+- The mask is submitted with the native draw's current transforms, viewport and depth state. The white source draw is skipped only when the gold/white replacement draw is submitted successfully.
+- This remains a format-filtered capture candidate, not yet verified against a live game trace. If the native speed streak uses a different vertex declaration or draw path, the filter will fail closed and leave the original effect untouched.
+- The vehicle-speed publisher is still not connected to a verified Xbox vehicle-velocity source. No PC-only address or guessed Xbox offset is used. Therefore the 150–500 km/h intensity ramp cannot activate reliably until that source is mapped.
+
+## Verification status
+
+No Android build or in-game capture has been run for this adapter commit. Source integration is committed; runtime correctness remains unverified.

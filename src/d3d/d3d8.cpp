@@ -1541,7 +1541,7 @@ struct LightningLineVertex {
     uint32_t color;
 };
 
-// Only the native untextured XYZ+DIFFUSE line-list path is eligible. Keeping this
+// Only XYZ+DIFFUSE line lists or paired-edge triangle strips are eligible. Keeping this
 // predicate narrow prevents unrelated particle meshes from being mistaken for speed streaks.
 bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t count,
                                uint32_t stride, game::lightning_aura::ParticleLine* output,
