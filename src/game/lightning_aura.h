@@ -32,10 +32,12 @@ struct ParticleLine {
     float alpha;
 };
 
-// Replaces each native white streak with a narrow, jagged yellow filament while preserving
-// its position, orientation, and length. Returns 0 when speed/effect/inputs are off.
+// Replaces each native white streak with three tapered, jagged gold filaments.
+// The center filament preserves the native line; outer filaments widen the lightning trail.
 inline constexpr std::size_t kParticleMaskSegments = 6;
-inline constexpr std::size_t kParticleMaskVerticesPerLine = kParticleMaskSegments * 2;
+inline constexpr std::size_t kParticleMaskStrands = 3;
+inline constexpr std::size_t kParticleMaskVerticesPerLine =
+    kParticleMaskSegments * 2 * kParticleMaskStrands;
 std::size_t BuildParticleMaskVertices(float speed_kmh, float time_seconds,
                                       const ParticleLine* lines, std::size_t line_count,
                                       Vertex* output, std::size_t capacity) noexcept;

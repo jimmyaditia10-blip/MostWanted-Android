@@ -168,59 +168,47 @@ std::size_t BuildParticleMaskVertices(float speed_kmh, float time_seconds,
         !lines || !line_count || !output) return 0;
     const std::size_t count = std::min(line_count, capacity / kParticleMaskVerticesPerLine);
     std::size_t at = 0;
-    const float phase = time_seconds * (12.0f + 18.0f*intensity);
-    for (std::size_t i=0; i<count; ++i) {
-        const ParticleLine& p=lines[i];
+    const float phase = time_seconds * (15.0f + 22.0f * intensity);
+    for (std::size_t i = 0; i < count; ++i) {
+        const ParticleLine& p = lines[i];
         if (!Finite3(p.start_x,p.start_y,p.start_z) || !Finite3(p.end_x,p.end_y,p.end_z) ||
             !std::isfinite(p.alpha)) continue;
-        // Build #55 bumper anchors (front-left/center/right, rear-left/center/right).
-        // Re-anchor each native streak at its nearest bumper point while preserving
-        // the streak's original direction and length. This is the production path:
-        // every yellow mask filament now starts on the same car-local bumper map.
-        constexpr Vec3 kBuild55BumperAnchors[6] = {
-            {-1.05f, 0.22f,  2.18f}, {0.0f, 0.30f,  2.24f}, {1.05f, 0.22f,  2.18f},
-            {-1.18f, 0.25f, -2.16f}, {0.0f, 0.30f, -2.22f}, {1.18f, 0.25f, -2.16f}
-        };
-        const Vec3 native_start{p.start_x,p.start_y,p.start_z};
-        const Vec3 native_end{p.end_x,p.end_y,p.end_z};
-        std::size_t anchor_index = 0;
-        float nearest_anchor_distance = std::numeric_limits<float>::max();
-        for (std::size_t anchor = 0; anchor < 6; ++anchor) {
-            const Vec3 d = Sub(native_start, kBuild55BumperAnchors[anchor]);
-            const float distance = LengthSq(d);
-            if (distance < nearest_anchor_distance) {
-                nearest_anchor_distance = distance;
-                anchor_index = anchor;
+        const Vec3 start{p.start_x,p.start_y,p.start_z};
+        const Vec3 end{p.end_x,p.end_y,p.end_z};
+        const Vec3 delta = Sub(end,start);
+        const float len2 = LengthSq(delta);
+        if (!std::isfinite(len2) || len2 < kMinLineLengthSq) continue;
+        const float len = std::sqrt(len2);
+        const Vec3 dir = Scale(delta,1.0f/len);
+        const Vec3 ref = std::fabs(dir.y) < 0.88f ? Vec3{0,1,0} : Vec3{1,0,0};
+        Vec3 side = Cross(dir,ref);
+        side = Scale(side,1.0f/std::sqrt(std::max(LengthSq(side),1.0e-8f)));
+        const float pulse = 0.78f + 0.22f*std::sin(phase+float(i)*1.37f);
+        const float brightness = Clamp01(Clamp01(p.alpha)*intensity*pulse);
+        if (brightness <= 0.001f) continue;
+
+        // Three filaments form a broad, tapered lightning ribbon. Outer strands converge
+        // exactly onto the captured native streak at both ends, preserving its anchor map.
+        for (int strand = -1; strand <= 1; ++strand) {
+            Vec3 previous = start;
+            const float strand_gain = strand == 0 ? 1.0f : 0.76f;
+            for (std::size_t s = 0; s < kParticleMaskSegments; ++s) {
+                const float t = float(s+1)/float(kParticleMaskSegments);
+                const float envelope = std::sin(3.14159265358979323846f*t);
+                const float jitter = Hash01(std::uint32_t(i*131u+s*29u+
+                    std::uint32_t(phase*13.0f)+std::uint32_t((strand+1)*977))) - 0.5f;
+                const float alternating = (s&1u) ? -1.0f : 1.0f;
+                Vec3 next = Add(start,Scale(delta,t));
+                const float fan_width = (0.10f + 0.22f*intensity) * float(strand) * envelope;
+                const float jagged = (0.10f + 0.18f*intensity) *
+                    (0.55f*alternating + 0.90f*jitter) * envelope;
+                next = Add(next,Scale(side,fan_width+jagged));
+                const float vertical = 0.035f*std::sin(phase+t*19.0f+float(i)+float(strand))*envelope;
+                next.y += vertical;
+                output[at++] = {previous.x,previous.y,previous.z,brightness*strand_gain};
+                output[at++] = {next.x,next.y,next.z,brightness*strand_gain*(0.74f+0.26f*intensity)};
+                previous = next;
             }
-        }
-        const Vec3 anchor = kBuild55BumperAnchors[anchor_index];
-        const Vec3 remap = Sub(anchor, native_start);
-        const Vec3 start = Add(native_start, remap);
-        const Vec3 end = Add(native_end, remap);
-        const Vec3 delta=Sub(end,start);
-        const float len2=LengthSq(delta);
-        if (!std::isfinite(len2) || len2<kMinLineLengthSq) continue;
-        const float len=std::sqrt(len2);
-        const Vec3 dir=Scale(delta,1.0f/len);
-        const Vec3 ref=std::fabs(dir.y)<0.88f ? Vec3{0,1,0} : Vec3{1,0,0};
-        Vec3 side=Cross(dir,ref);
-        side=Scale(side,1.0f/std::sqrt(std::max(LengthSq(side),1.0e-8f)));
-        const float pulse=0.82f+0.18f*std::sin(phase+float(i)*1.73f);
-        const float brightness=Clamp01(Clamp01(p.alpha)*intensity*pulse);
-        if (brightness<=0.001f) continue;
-        const float amp=std::min(0.18f,len*0.075f)*(0.35f+0.65f*intensity);
-        Vec3 previous=start;
-        for (std::size_t s=0;s<kParticleMaskSegments;++s) {
-            const float t=float(s+1)/float(kParticleMaskSegments);
-            Vec3 next=Add(start,Scale(delta,t));
-            if (s+1<kParticleMaskSegments) {
-                const float sign=(s&1u)?-1.0f:1.0f;
-                const float noise=0.55f+0.45f*Hash01(std::uint32_t(i*131u+s*17u+std::uint32_t(phase*11.0f)));
-                next=Add(next,Scale(side,sign*amp*noise));
-            }
-            output[at++]={previous.x,previous.y,previous.z,brightness};
-            output[at++]={next.x,next.y,next.z,brightness*(0.72f+0.28f*intensity)};
-            previous=next;
         }
     }
     return at;
