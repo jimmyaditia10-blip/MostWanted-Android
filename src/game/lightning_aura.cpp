@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <mutex>
+#include <limits>
 
 namespace game::lightning_aura {
 namespace {
@@ -172,7 +173,30 @@ std::size_t BuildParticleMaskVertices(float speed_kmh, float time_seconds,
         const ParticleLine& p=lines[i];
         if (!Finite3(p.start_x,p.start_y,p.start_z) || !Finite3(p.end_x,p.end_y,p.end_z) ||
             !std::isfinite(p.alpha)) continue;
-        const Vec3 start{p.start_x,p.start_y,p.start_z}, end{p.end_x,p.end_y,p.end_z};
+        // Build #55 bumper anchors (front-left/center/right, rear-left/center/right).
+        // Re-anchor each native streak at its nearest bumper point while preserving
+        // the streak's original direction and length. This is the production path:
+        // every yellow mask filament now starts on the same car-local bumper map.
+        constexpr Vec3 kBuild55BumperAnchors[6] = {
+            {-1.05f, 0.22f,  2.18f}, {0.0f, 0.30f,  2.24f}, {1.05f, 0.22f,  2.18f},
+            {-1.18f, 0.25f, -2.16f}, {0.0f, 0.30f, -2.22f}, {1.18f, 0.25f, -2.16f}
+        };
+        const Vec3 native_start{p.start_x,p.start_y,p.start_z};
+        const Vec3 native_end{p.end_x,p.end_y,p.end_z};
+        std::size_t anchor_index = 0;
+        float nearest_anchor_distance = std::numeric_limits<float>::max();
+        for (std::size_t anchor = 0; anchor < 6; ++anchor) {
+            const Vec3 d = Sub(native_start, kBuild55BumperAnchors[anchor]);
+            const float distance = LengthSq(d);
+            if (distance < nearest_anchor_distance) {
+                nearest_anchor_distance = distance;
+                anchor_index = anchor;
+            }
+        }
+        const Vec3 anchor = kBuild55BumperAnchors[anchor_index];
+        const Vec3 remap = Sub(anchor, native_start);
+        const Vec3 start = Add(native_start, remap);
+        const Vec3 end = Add(native_end, remap);
         const Vec3 delta=Sub(end,start);
         const float len2=LengthSq(delta);
         if (!std::isfinite(len2) || len2<kMinLineLengthSq) continue;
