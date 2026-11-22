@@ -1206,9 +1206,11 @@ void DrawLightningAura() {
     // from suppressing the aura when the game's HUD speed and our sample cadence differ.
     const float measured = lightning_aura::MeasuredSpeedKmh();
     const float speed = std::max(sample_speed, std::isfinite(measured) ? measured : 0.0f);
-    if (!std::isfinite(speed) || speed < 2.0f) return;
-    const float intensity = std::clamp(0.28f + std::max(0.0f, speed - 40.0f) / 460.0f * 0.72f,
-                                      0.28f, 1.0f);
+    // The aura is intentionally inactive below 150 km/h and reaches full
+    // strength at 500 km/h. This keeps the activation window deterministic.
+    if (!std::isfinite(speed) || speed < 150.0f) return;
+    const float intensity = lightning_aura::IntensityForSpeed(speed);
+    if (intensity <= 0.0f) return;
 
     const Mat rotation = MatOf(car.rot, {});
     Vec axes[3] = {
