@@ -1737,19 +1737,20 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
     aura.simple[gpu::kMZWriteEnable >> 2] = 0;
     aura.simple[gpu::kMColorWriteEnable >> 2] = 0xF;
 
-    auto submit = [&](bool white_core) {
+    auto submit = [&](uint32_t rgb, float gain) {
         for (std::size_t i = 0; i < vertex_count; ++i) {
-            const float alpha = std::clamp(masked[i].intensity * (white_core ? 0.88f : 0.58f), 0.0f, 1.0f);
+            const float alpha = std::clamp(masked[i].intensity * gain, 0.0f, 1.0f);
             const uint32_t a = uint32_t(alpha * 255.0f);
-            const uint32_t rgb = white_core ? 0x00FFFFFFu : 0x00FFD080u;
             draw_vertices[i] = {masked[i].x, masked[i].y, masked[i].z, (a << 24) | rgb};
         }
         aura.streams[0] = {UpVertices(draw_vertices.data(), uint32_t(draw_vertices.size() * sizeof(LightningLineVertex))),
                            sizeof(LightningLineVertex)};
         g_backend->Draw(aura, 2, 0, uint32_t(vertex_count), nullptr);
     };
-    submit(false);
-    submit(true);
+    // Additive stacked passes: warm orange fringe, saturated golden body, white-hot core.
+    submit(0x00FF7A18u, 0.34f);
+    submit(0x00FFC02Au, 0.68f);
+    submit(0x00FFFFFFu, 0.94f);
     return true;
 }
 
