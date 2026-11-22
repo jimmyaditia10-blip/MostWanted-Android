@@ -43,8 +43,6 @@ using namespace kernel;
 #define HAS_D3DDevice_SetPalette 0
 #endif
 
-namespace game { bool PlayerCarBodyTransform(float out[16]); }
-
 namespace d3d {
 
 namespace {
@@ -1651,55 +1649,30 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
     const float speed = MeasuredSpeedKmh();
     if (!g_backend || speed < 150.0f || !lines || !line_count) return false;
 
-    // Use the live player CarRenderInfo body matrix (the exact matrix consumed by
-    // CarRenderInfo::Render at 0x255490), not the native streak draw's stale world space.
-    float car_world[16]{};
-    if (!game::PlayerCarBodyTransform(car_world)) return false;
-    const auto& streak_world = g_state.transforms[256];
-
-    // Convert streak vertices: streak-local -> world -> current player-car-local.
-    // The car body matrix is an orthonormal row-vector transform, so its inverse
-    // is the transposed rotation plus translated origin.
-    std::vector<ParticleLine> car_local(lines, lines + line_count);
-    auto to_car_local = [&](float& x, float& y, float& z) {
-        const float wx = x * streak_world[0] + y * streak_world[4] + z * streak_world[8] + streak_world[12];
-        const float wy = x * streak_world[1] + y * streak_world[5] + z * streak_world[9] + streak_world[13];
-        const float wz = x * streak_world[2] + y * streak_world[6] + z * streak_world[10] + streak_world[14];
-        const float dx = wx - car_world[12], dy = wy - car_world[13], dz = wz - car_world[14];
-        x = dx * car_world[0] + dy * car_world[1] + dz * car_world[2];
-        y = dx * car_world[4] + dy * car_world[5] + dz * car_world[6];
-        z = dx * car_world[8] + dy * car_world[9] + dz * car_world[10];
-    };
-    for (auto& line : car_local) {
-        to_car_local(line.start_x, line.start_y, line.start_z);
-        to_car_local(line.end_x, line.end_y, line.end_z);
-        // Explicit Lightning aura local-axis offset requested for this build.
-        constexpr float kLightningAxisX = 30.0f;
-        constexpr float kLightningAxisY = 32.0f;
-        constexpr float kLightningAxisZ = 34.0f;
-        line.start_x += kLightningAxisX;
-        line.start_y += kLightningAxisY;
-        line.start_z += kLightningAxisZ;
-        line.end_x += kLightningAxisX;
-        line.end_y += kLightningAxisY;
-        line.end_z += kLightningAxisZ;
-    }
+    // Captured XYZ values are the native streak draw's input coordinates. Keep them
+    // unchanged and render with the exact same world transform as the native draw.
+    // Do not remap through PlayerCarBodyTransform: the Android port can apply a
+    // different car-body placement, which makes that second transform drift away
+    // from the native streaks. The original white draw and this replacement now
+    // share one coordinate space and one transform.
+    const std::vector<ParticleLine> source_lines(lines, lines + line_count);
 
     if (g_trace) {
         static uint32_t mapping_reports = 0;
         if (mapping_reports++ < 96) {
-            const auto& p = car_local[0];
-            LOGI("lightning-map: speed=%.1f lines=%u carT=(%.3f,%.3f,%.3f) streakT=(%.3f,%.3f,%.3f)",
-                 speed, uint32_t(line_count), car_world[12], car_world[13], car_world[14],
-                 streak_world[12], streak_world[13], streak_world[14]);
-            LOGI("lightning-map: local0=(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) alpha=%.3f",
+            const auto& p = source_lines[0];
+            const auto& world = g_state.transforms[256];
+            LOGI("lightning-map: native-space speed=%.1f lines=%u worldT=(%.3f,%.3f,%.3f)",
+                 speed, uint32_t(line_count), world[12], world[13], world[14]);
+            LOGI("lightning-map: source0=(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) alpha=%.3f",
                  p.start_x, p.start_y, p.start_z, p.end_x, p.end_y, p.end_z, p.alpha);
         }
     }
 
-    std::vector<Vertex> masked(line_count * kParticleMaskVerticesPerLine);
+    std::vector<Vertex> masked(source_lines.size() * kParticleMaskVerticesPerLine);
     const std::size_t vertex_count = BuildParticleMaskVertices(
-        speed, float(g_presents) / 60.0f, car_local.data(), car_local.size(), masked.data(), masked.size());
+        speed, float(g_presents) / 60.0f, source_lines.data(), source_lines.size(),
+        masked.data(), masked.size());
     if (!vertex_count) return false;
 
     std::vector<LightningLineVertex> draw_vertices(vertex_count);
@@ -1709,7 +1682,7 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
     aura.vs_handle = 0x42;
     aura.textures.fill(0);
     aura.palettes.fill(0);
-    std::memcpy(aura.transforms[256].data(), car_world, sizeof(car_world));
+    // Keep aura.transforms[256] untouched: it must match the native streak draw.
     aura.rs[gpu::kRsLighting] = 0;
     aura.rs[gpu::kRsColorVertex] = 1;
     aura.rs[gpu::kRsZEnable] = 1;
