@@ -1683,8 +1683,6 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
         line.end_x += kLightningAxisX;
         line.end_y += kLightningAxisY;
         line.end_z += kLightningAxisZ;
-    }        to_car_local(line.start_x, line.start_y, line.start_z);
-        to_car_local(line.end_x, line.end_y, line.end_z);
     }
 
     if (g_trace) {
