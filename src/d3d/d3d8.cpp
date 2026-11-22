@@ -1491,7 +1491,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
     std::size_t native_streak_count = 0;
     const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
-        a[0], indices, a[1], native_streaks.data(), native_streaks.size(), native_streak_count);
+        indices, a[1], a[0], native_streaks.data(), native_streaks.size(), native_streak_count);
     if (streak_candidate)
         game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     CountTarget(false, a[1]);
