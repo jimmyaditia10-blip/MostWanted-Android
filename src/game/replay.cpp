@@ -1293,6 +1293,42 @@ void DrawLightningAura() {
         return float(v & 0x00ffffffu) / float(0x01000000u);
     };
 
+    // Volumetric-looking exhaust haze: layered, fading puffs dragged behind the bumper.
+    for (unsigned i = 0; i < 10; ++i) {
+        const float seed = float(i) * 1.71f;
+        const float age = std::fmod(time * 0.16f + float(i) * 0.103f, 1.0f);
+        const float x = std::sin(time * 0.72f + seed) * (0.18f + age * 1.25f);
+        const float y = 0.20f + age * 0.72f + std::sin(time * 0.9f + seed) * 0.10f;
+        const float z = -2.65f - age * 5.8f;
+        ImVec2 p;
+        float depth = 0.0f;
+        if (!project_world(world_point(x, y, z), p, &depth)) continue;
+        const float perspective = std::clamp(10.0f / depth, 0.35f, 1.25f);
+        const float radius = (7.0f + age * 16.0f) * scale * perspective;
+        const int alpha = int((1.0f - age) * fx_intensity * 105.0f);
+        dl->AddCircleFilled(p, radius * 1.75f, IM_COL32(67, 55, 42, alpha / 2), 20);
+        dl->AddCircleFilled(p, radius, IM_COL32(143, 93, 42, alpha), 20);
+        dl->AddCircleFilled(p, radius * 0.48f, IM_COL32(238, 155, 55, alpha / 3), 16);
+    }
+
+    // Animated sparks: short hot cores with long amber tails, fanning out from the rear.
+    for (unsigned i = 0; i < 34; ++i) {
+        const float seed = hash01(i * 97u + 13u);
+        const float phase = std::fmod(time * (0.72f + seed * 0.42f) + seed * 1.37f, 1.0f);
+        const float spread = (hash01(i * 193u + 5u) - 0.5f) * (1.5f + phase * 3.2f);
+        const float lift = (hash01(i * 271u + 9u) - 0.25f) * (0.8f + phase * 1.4f);
+        const float z = -2.5f - phase * (3.2f + seed * 4.8f);
+        const float x = (hash01(i * 331u + 17u) - 0.5f) * 2.2f + spread;
+        const float y = 0.18f + lift;
+        ImVec2 a, b;
+        if (!project_world(world_point(x, y, z), a) ||
+            !project_world(world_point(x + spread * 0.10f, y + lift * 0.06f, z - 0.38f), b)) continue;
+        const int alpha = int((1.0f - phase * 0.72f) * fx_intensity * 255.0f);
+        dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 3), (2.8f + seed * 1.8f) * scale);
+        dl->AddLine(a, b, IM_COL32(255, 198, 35, alpha), 1.35f * scale);
+        dl->AddCircleFilled(a, (1.1f + seed * 0.8f) * scale, IM_COL32(255, 248, 190, alpha), 10);
+    }
+
     // Prefer the native Light Trail geometry when a verified game-side capture hook
     // has published it. The mask keeps every streak's measured endpoints and direction.
     // The capture producer is intentionally separate: never guess a D3D draw call and
