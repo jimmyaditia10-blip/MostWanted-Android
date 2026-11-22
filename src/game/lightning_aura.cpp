@@ -55,22 +55,6 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
         output[at++] = {b.x, b.y, b.z, brightness};
     };
 
-    // A fine electric corona around the white-hot rear emission core.
-    constexpr unsigned kCoronaSegments = 16;
-    constexpr float kCoronaRadiusX = 0.82f, kCoronaRadiusY = 0.72f;
-    Vec3 previous{};
-    for (unsigned i = 0; i < kCoronaSegments; ++i) {
-        const float a = kTwoPi * float(i) / float(kCoronaSegments);
-        const float b = kTwoPi * float(i + 1) / float(kCoronaSegments);
-        Vec3 p0{std::cos(a) * kCoronaRadiusX, 0.78f + std::sin(a) * kCoronaRadiusY, -2.82f};
-        Vec3 p1{std::cos(b) * kCoronaRadiusX, 0.78f + std::sin(b) * kCoronaRadiusY, -2.82f};
-        const float wobble = 0.035f * std::sin(phase * 1.4f + float(i) * 2.1f);
-        p0.z += wobble;
-        p1.z += 0.035f * std::sin(phase * 1.4f + float(i + 1) * 2.1f);
-        emit(p0, p1, intensity * (0.78f + 0.22f * std::sin(phase + float(i))));
-        previous = p1;
-    }
-
     // Two dominant high-voltage arms sweep outward and upward like the supplied PNG.
     for (int side = -1; side <= 1; side += 2) {
         Vec3 p{0.0f, 0.78f, -2.82f};
