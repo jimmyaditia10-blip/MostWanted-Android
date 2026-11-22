@@ -1459,11 +1459,13 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     return 0;
 }
 
-// Forward declarations: indexed draw hooks appear before the shared capture/render helpers.
+// Forward declarations share the anonymous namespace with the helper definitions below.
+namespace {
 bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t count,
                                uint32_t stride, game::lightning_aura::ParticleLine* output,
                                std::size_t capacity, std::size_t& captured);
 bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, std::size_t line_count);
+}  // namespace
 
 bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_count,
                                       uint32_t prim, game::lightning_aura::ParticleLine* output,
