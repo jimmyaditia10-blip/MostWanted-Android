@@ -1340,21 +1340,45 @@ void DrawLightningAura() {
         dl->AddCircleFilled(a, (1.1f + seed * 0.8f) * scale, IM_COL32(255, 248, 190, alpha), 10);
     }
 
-    // Multi-fork lightning filaments; the local model is now aligned to the measured
-    // direction of travel, so the fan always exits the rear instead of an arbitrary axis.
-    constexpr size_t kBoltVertices = lightning_aura::kVertexCount;
-    lightning_aura::Vertex vertices[kBoltVertices]{};
-    const size_t count = lightning_aura::BuildVertices(intensity, time, vertices, kBoltVertices);
-    for (size_t i = 0; i + 1 < count; i += 2) {
-        ImVec2 a, b;
-        if (!project_local(vertices[i], a) || !project_local(vertices[i + 1], b)) continue;
-        const float glow = std::clamp(vertices[i].intensity, 0.0f, 1.0f);
-        const int alpha = int(235.0f * glow);
-        if (alpha < 6) continue;
-        dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 5), 12.0f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 164, 0, alpha / 2), 6.0f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 204, 35, alpha), 3.0f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 250, 205, std::min(255, alpha + 30)), 1.35f * scale);
+    // Prefer the native Light Trail geometry when a verified game-side capture hook
+    // has published it. The mask keeps every streak's measured endpoints and direction.
+    // The capture producer is intentionally separate: never guess a D3D draw call and
+    // mistake tire smoke, debris, or unrelated translucent geometry for Light Trail.
+    constexpr size_t kMaxCapturedLines = 256;
+    constexpr size_t kMaskCapacity =
+        kMaxCapturedLines * lightning_aura::kParticleMaskVerticesPerLine;
+    lightning_aura::ParticleLine native_lines[kMaxCapturedLines]{};
+    lightning_aura::Vertex mask_vertices[kMaskCapacity]{};
+    const size_t native_count =
+        lightning_aura::CopyNativeSpeedStreaks(native_lines, kMaxCapturedLines);
+    const size_t mask_count = lightning_aura::BuildParticleMaskVertices(
+        speed, time, native_lines, native_count, mask_vertices, kMaskCapacity);
+
+    auto draw_filament = [&](const lightning_aura::Vertex* points, size_t point_count) {
+        for (size_t i = 0; i + 1 < point_count; i += 2) {
+            ImVec2 a, b;
+            if (!project_local(points[i], a) || !project_local(points[i + 1], b)) continue;
+            const float glow = std::clamp(points[i].intensity, 0.0f, 1.0f);
+            const int alpha = int(235.0f * glow);
+            if (alpha < 6) continue;
+            // Amber outer bloom, electric-yellow body, white-hot animated core.
+            dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 5), 12.0f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 164, 0, alpha / 2), 6.0f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 204, 35, alpha), 3.0f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 250, 205, std::min(255, alpha + 30)), 1.35f * scale);
+        }
+    };
+
+    if (mask_count) {
+        draw_filament(mask_vertices, mask_count);
+    } else {
+        // Until the native Light Trail capture hook is verified, retain the animated
+        // car-relative lightning design as a visible fallback, not as fake masking.
+        constexpr size_t kBoltVertices = lightning_aura::kVertexCount;
+        lightning_aura::Vertex preview_vertices[kBoltVertices]{};
+        const size_t preview_count =
+            lightning_aura::BuildVertices(intensity, time, preview_vertices, kBoltVertices);
+        draw_filament(preview_vertices, preview_count);
     }
 }
 void DrawReplayHud() {
