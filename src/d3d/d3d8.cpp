@@ -1506,7 +1506,7 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     auto stream = g_state.streams[0];
     // Temporary high-speed draw census: collect candidate geometry metadata only.
     // This deliberately does not publish particles until Light Trail is identified.
-    const float aura_speed = lightning_aura::MeasuredSpeedKmh();
+    const float aura_speed = game::lightning_aura::MeasuredSpeedKmh();
     if (g_trace && aura_speed >= 150.0f) {
         static uint32_t candidate_dumps = 0;
         if (candidate_dumps++ < 96) {
