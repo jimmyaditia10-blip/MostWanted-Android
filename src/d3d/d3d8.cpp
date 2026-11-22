@@ -1500,6 +1500,89 @@ uint32_t UpVertices(const void* src, uint32_t bytes) {
     return g_up_header;
 }
 
+
+struct LightningLineVertex {
+    float x, y, z;
+    uint32_t color;
+};
+
+// Only the native untextured XYZ+DIFFUSE line-list path is eligible. Keeping this
+// predicate narrow prevents unrelated particle meshes from being mistaken for speed streaks.
+bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t count,
+                               uint32_t stride, game::lightning_aura::ParticleLine* output,
+                               std::size_t capacity, std::size_t& captured) {
+    using game::lightning_aura::ParticleLine;
+    captured = 0;
+    if (!vertices || prim != 2 || stride != sizeof(LightningLineVertex) ||
+        g_state.vs_handle != 0x42 || g_state.ps ||
+        g_state.textures[0] || g_state.textures[1] || count < 2 || count > 256 ||
+        (count & 1u)) return false;
+    const auto* data = static_cast<const uint8_t*>(vertices);
+    for (uint32_t i = 0; i + 1 < count && captured < capacity; i += 2) {
+        LightningLineVertex a{}, b{};
+        std::memcpy(&a, data + i * stride, sizeof(a));
+        std::memcpy(&b, data + (i + 1) * stride, sizeof(b));
+        auto white = [](uint32_t c) {
+            const uint32_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+            return ((c >> 24) & 0xFF) >= 24 && r >= 224 && g >= 224 && b >= 224;
+        };
+        if (!white(a.color) || !white(b.color)) continue;
+        const float dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const float length2 = dx * dx + dy * dy + dz * dz;
+        if (!std::isfinite(a.x) || !std::isfinite(a.y) || !std::isfinite(a.z) ||
+            !std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.z) ||
+            !std::isfinite(length2) || length2 < 0.0225f || length2 > 400.0f) continue;
+        output[captured++] = {a.x, a.y, a.z, b.x, b.y, b.z,
+                              float(std::min((a.color >> 24) & 0xFF, (b.color >> 24) & 0xFF)) / 255.0f};
+    }
+    return captured != 0;
+}
+
+// Draw in the exact transform/viewport/depth state of the native streak draw. The source
+// line endpoints are kept unchanged; only interior samples are jagged. The original white
+// draw is skipped only after this replacement draw has actually been submitted.
+bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, std::size_t line_count) {
+    using namespace game::lightning_aura;
+    const float speed = MeasuredSpeedKmh();
+    if (!g_backend || speed < 150.0f || !lines || !line_count) return false;
+    std::vector<Vertex> masked(line_count * kParticleMaskVerticesPerLine);
+    const std::size_t vertex_count = BuildParticleMaskVertices(
+        speed, float(g_presents) / 60.0f, lines, line_count, masked.data(), masked.size());
+    if (!vertex_count) return false;
+
+    std::vector<LightningLineVertex> draw_vertices(vertex_count);
+    gpu::State aura = g_state;
+    aura.vs.reset();
+    aura.ps.reset();
+    aura.vs_handle = 0x42;  // D3DFVF_XYZ | D3DFVF_DIFFUSE
+    aura.textures.fill(0);
+    aura.palettes.fill(0);
+    aura.rs[gpu::kRsLighting] = 0;
+    aura.rs[gpu::kRsColorVertex] = 1;
+    aura.rs[gpu::kRsZEnable] = 1;
+    aura.rs[gpu::kRsCullMode] = 1;  // D3DCULL_NONE
+    aura.simple[gpu::kMBlendEnable >> 2] = 1;
+    aura.simple[gpu::kMSrcBlend >> 2] = 5;  // D3DBLEND_SRCALPHA
+    aura.simple[gpu::kMDestBlend >> 2] = 2; // D3DBLEND_ONE
+    aura.simple[gpu::kMZWriteEnable >> 2] = 0;
+    aura.simple[gpu::kMColorWriteEnable >> 2] = 0xF;
+
+    auto submit = [&](bool white_core) {
+        for (std::size_t i = 0; i < vertex_count; ++i) {
+            const float alpha = std::clamp(masked[i].intensity * (white_core ? 0.88f : 0.58f), 0.0f, 1.0f);
+            const uint32_t a = uint32_t(alpha * 255.0f);
+            const uint32_t rgb = white_core ? 0x00FFFFFFu : 0x00FFD080u;
+            draw_vertices[i] = {masked[i].x, masked[i].y, masked[i].z, (a << 24) | rgb};
+        }
+        aura.streams[0] = {UpVertices(draw_vertices.data(), uint32_t(draw_vertices.size() * sizeof(LightningLineVertex))),
+                           sizeof(LightningLineVertex)};
+        g_backend->Draw(aura, 2, 0, uint32_t(vertex_count), nullptr); // D3DPT_LINELIST
+    };
+    submit(false); // gold halo
+    submit(true);  // bright white core
+    return true;
+}
+
 void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
     if (!g_backend || !count || !stride) return;
     SyncDeferred();
@@ -1555,9 +1638,18 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
                  stride);
         }
     }
+    std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
+    std::size_t native_streak_count = 0;
+    const bool streak_candidate = CaptureNativeWhiteStreaks(
+        prim, vertices, count, stride, native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (streak_candidate) {
+        game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
+    }
     g_state.streams[0] = {UpVertices(vertices, count * stride), stride};
     CountTarget(false, count);
-    g_backend->Draw(g_state, prim, 0, count, nullptr);
+    const bool replaced = streak_candidate &&
+        DrawLightningParticleMask(native_streaks.data(), native_streak_count);
+    if (!replaced) g_backend->Draw(g_state, prim, 0, count, nullptr);
     g_state.streams[0] = stream;
 }
 
