@@ -15,9 +15,12 @@ struct Vertex {
 
 // Legacy procedural preview only. Production masking should use BuildParticleMaskVertices.
 inline constexpr std::size_t kBoltCount = 8;
-// Eight rear-emitted trunks, each with one main run and two fork branches.
+// Eight wheel-origin trunks, each with one main run and two fork branches.
 inline constexpr std::size_t kSegmentsPerBolt = 14;
-inline constexpr std::size_t kVertexCount = kBoltCount * kSegmentsPerBolt * 2;
+inline constexpr std::size_t kDominantSegments = 16;
+inline constexpr std::size_t kStraightSegments = 8;
+inline constexpr std::size_t kVertexCount =
+    (kDominantSegments + kStraightSegments + kBoltCount * kSegmentsPerBolt) * 2;
 std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
                           std::size_t capacity) noexcept;
 
