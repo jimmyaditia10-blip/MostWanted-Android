@@ -1504,10 +1504,11 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     if (!g_backend || !count || !stride) return;
     SyncDeferred();
     auto stream = g_state.streams[0];
-    // Temporary high-speed draw census: collect candidate geometry metadata only.
-    // This deliberately does not publish particles until Light Trail is identified.
+    // Discovery must not depend on the speed publisher: until the native streak source is
+    // identified, gating this census on aura_speed would deadlock discovery at the default 0 km/h.
+    // This records candidate UP geometry only; it does not reinterpret or publish particles.
     const float aura_speed = game::lightning_aura::MeasuredSpeedKmh();
-    if (g_trace && aura_speed >= 150.0f) {
+    if (g_trace) {
         static uint32_t candidate_dumps = 0;
         if (candidate_dumps++ < 96) {
             LOGI("lightning-census: UP speed=%.1f prim=%u count=%u stride=%u vs=%08X",
