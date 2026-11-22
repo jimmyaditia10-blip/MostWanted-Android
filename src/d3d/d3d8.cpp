@@ -2041,9 +2041,10 @@ HLE_STDCALL(D3DDevice_DrawIndexedVerticesUP, 5) {
     const auto* source_vertices = static_cast<const uint8_t*>(HostPtr(a[3]));
     std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
     std::size_t native_streak_count = 0;
-    std::vector<uint8_t> gathered(std::size_t(count) * stride);
     bool gathered_ok = count <= 256 && (count % 2 == 0);
+    std::vector<uint8_t> gathered;
     if (gathered_ok) {
+        gathered.resize(std::size_t(count) * stride);
         for (uint32_t i = 0; i < count; ++i) {
             const uint64_t offset = uint64_t(indices[i]) * stride;
             if (offset + stride > uint64_t(vertices) * stride) { gathered_ok = false; break; }
