@@ -1515,31 +1515,77 @@ bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t cou
                                std::size_t capacity, std::size_t& captured) {
     using game::lightning_aura::ParticleLine;
     captured = 0;
-    if (!vertices || prim != 2 || stride != sizeof(LightningLineVertex) ||
-        g_state.vs_handle != 0x42 || g_state.ps ||
-        g_state.textures[0] || g_state.textures[1] || count < 2 || count > 256 ||
-        (count & 1u)) return false;
+    const uint32_t fvf = g_state.vs_handle;
+    if (!vertices || (prim != 2 && prim != 5) || (fvf & 1u) || !(fvf & 0x2u) ||
+        !(fvf & 0x40u) || g_state.ps || count < 2 || count > 256 || (count & 1u)) return false;
+
+    // XYZ + DIFFUSE, optionally followed by texture coordinates. Decode their declared
+    // widths instead of assuming a fixed 16-byte vertex.
+    const uint32_t tex_count = (fvf >> 8) & 0xFu;
+    if (tex_count > 2) return false;
+    uint32_t expected_stride = 16;
+    for (uint32_t t = 0; t < tex_count; ++t) {
+        const uint32_t size_code = (fvf >> (16 + t * 2)) & 3u;
+        expected_stride += (size_code == 0 ? 2u : size_code == 1 ? 3u : size_code == 2 ? 4u : 1u) * 4u;
+    }
+    if (stride != expected_stride) return false;
+
     const auto* data = static_cast<const uint8_t*>(vertices);
-    for (uint32_t i = 0; i + 1 < count && captured < capacity; i += 2) {
-        LightningLineVertex a{}, b{};
-        std::memcpy(&a, data + i * stride, sizeof(a));
-        std::memcpy(&b, data + (i + 1) * stride, sizeof(b));
-        auto white = [](uint32_t c) {
-            const uint32_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-            return ((c >> 24) & 0xFF) >= 24 && r >= 224 && g >= 224 && b >= 224;
-        };
-        if (!white(a.color) || !white(b.color)) continue;
-        const float dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-        const float length2 = dx * dx + dy * dy + dz * dz;
-        if (!std::isfinite(a.x) || !std::isfinite(a.y) || !std::isfinite(a.z) ||
-            !std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(b.z) ||
-            !std::isfinite(length2) || length2 < 0.0225f || length2 > 400.0f) continue;
-        output[captured++] = {a.x, a.y, a.z, b.x, b.y, b.z,
-                              float(std::min((a.color >> 24) & 0xFF, (b.color >> 24) & 0xFF)) / 255.0f};
+    auto read_vertex = [&](uint32_t index, float& x, float& y, float& z, uint32_t& color) {
+        const uint8_t* p = data + index * stride;
+        std::memcpy(&x, p, 4);
+        std::memcpy(&y, p + 4, 4);
+        std::memcpy(&z, p + 8, 4);
+        std::memcpy(&color, p + 12, 4);
+    };
+    auto white = [](uint32_t c) {
+        const uint32_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        return ((c >> 24) & 0xFF) >= 24 && r >= 224 && g >= 224 && b >= 224;
+    };
+
+    // Native speed streaks are accepted as line pairs or as the paired edges of a
+    // triangle strip ribbon. For ribbons, their centerline is the midpoint of each edge pair.
+    const uint32_t pairs = prim == 2 ? count / 2 : count / 2;
+    for (uint32_t pair = 0; pair < pairs && captured < capacity; ++pair) {
+        float ax, ay, az, bx, by, bz;
+        uint32_t ca, cb;
+        read_vertex(pair * 2, ax, ay, az, ca);
+        read_vertex(pair * 2 + 1, bx, by, bz, cb);
+        if (!white(ca) || !white(cb)) continue;
+        if (prim == 2) {
+            // A line-list pair is already the centerline endpoints.
+        } else {
+            // A strip pair is one ribbon cross-section; connect successive centers below.
+            ax = (ax + bx) * 0.5f; ay = (ay + by) * 0.5f; az = (az + bz) * 0.5f;
+            bx = ax; by = ay; bz = az;
+        }
+        if (!std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az) ||
+            !std::isfinite(bx) || !std::isfinite(by) || !std::isfinite(bz)) continue;
+        const float alpha = float(std::min((ca >> 24) & 0xFF, (cb >> 24) & 0xFF)) / 255.0f;
+        if (prim == 2) {
+            const float dx = bx - ax, dy = by - ay, dz = bz - az;
+            const float length2 = dx * dx + dy * dy + dz * dz;
+            if (!std::isfinite(length2) || length2 < 0.0225f || length2 > 400.0f) continue;
+            output[captured++] = {ax, ay, az, bx, by, bz, alpha};
+        } else if (pair > 0) {
+            // Join this cross-section center to the previous one, preserving the strip's
+            // own draw-space coordinates and alpha envelope.
+            const ParticleLine& previous = output[captured - 1];
+            const float dx = ax - previous.end_x, dy = ay - previous.end_y, dz = az - previous.end_z;
+            const float length2 = dx * dx + dy * dy + dz * dz;
+            if (std::isfinite(length2) && length2 >= 0.0225f && length2 <= 400.0f)
+                output[captured++] = {previous.end_x, previous.end_y, previous.end_z, ax, ay, az, alpha};
+        } else {
+            output[captured++] = {ax, ay, az, ax, ay, az, alpha};
+        }
+    }
+    // The first ribbon cross-section is only a seed, never a drawable line.
+    if (prim == 5 && captured) {
+        for (std::size_t i = 1; i < captured; ++i) output[i - 1] = output[i];
+        --captured;
     }
     return captured != 0;
 }
-
 // Draw in the exact transform/viewport/depth state of the native streak draw. The source
 // line endpoints are kept unchanged; only interior samples are jagged. The original white
 // draw is skipped only after this replacement draw has actually been submitted.
