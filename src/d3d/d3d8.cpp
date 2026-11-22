@@ -1517,10 +1517,10 @@ bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t cou
     captured = 0;
     const uint32_t fvf = g_state.vs_handle;
     if (!vertices || (prim != 2 && prim != 5) || (fvf & 1u) || !(fvf & 0x2u) ||
-        !(fvf & 0x40u) || g_state.ps || count < 2 || count > 256 || (count & 1u)) return false;
+        !(fvf & 0x40u) || (fvf & 0x38u) || g_state.ps ||
+        count < 2 || count > 256 || (count & 1u)) return false;
 
-    // XYZ + DIFFUSE, optionally followed by texture coordinates. Decode their declared
-    // widths instead of assuming a fixed 16-byte vertex.
+    // XYZ + DIFFUSE, optionally followed by texture coordinates.
     const uint32_t tex_count = (fvf >> 8) & 0xFu;
     if (tex_count > 2) return false;
     uint32_t expected_stride = 16;
@@ -1533,56 +1533,46 @@ bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t cou
     const auto* data = static_cast<const uint8_t*>(vertices);
     auto read_vertex = [&](uint32_t index, float& x, float& y, float& z, uint32_t& color) {
         const uint8_t* p = data + index * stride;
-        std::memcpy(&x, p, 4);
-        std::memcpy(&y, p + 4, 4);
-        std::memcpy(&z, p + 8, 4);
+        std::memcpy(&x, p, 4); std::memcpy(&y, p + 4, 4); std::memcpy(&z, p + 8, 4);
         std::memcpy(&color, p + 12, 4);
     };
     auto white = [](uint32_t c) {
-        const uint32_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-        return ((c >> 24) & 0xFF) >= 24 && r >= 224 && g >= 224 && b >= 224;
+        return ((c >> 24) & 0xFF) >= 24 && ((c >> 16) & 0xFF) >= 224 &&
+               ((c >> 8) & 0xFF) >= 224 && (c & 0xFF) >= 224;
     };
-
-    // Native speed streaks are accepted as line pairs or as the paired edges of a
-    // triangle strip ribbon. For ribbons, their centerline is the midpoint of each edge pair.
-    const uint32_t pairs = prim == 2 ? count / 2 : count / 2;
-    for (uint32_t pair = 0; pair < pairs && captured < capacity; ++pair) {
+    float previous_x = 0, previous_y = 0, previous_z = 0, previous_alpha = 0;
+    bool have_previous = false;
+    for (uint32_t pair = 0; pair < count / 2 && captured < capacity; ++pair) {
         float ax, ay, az, bx, by, bz;
         uint32_t ca, cb;
         read_vertex(pair * 2, ax, ay, az, ca);
         read_vertex(pair * 2 + 1, bx, by, bz, cb);
-        if (!white(ca) || !white(cb)) continue;
-        if (prim == 2) {
-            // A line-list pair is already the centerline endpoints.
-        } else {
-            // A strip pair is one ribbon cross-section; connect successive centers below.
-            ax = (ax + bx) * 0.5f; ay = (ay + by) * 0.5f; az = (az + bz) * 0.5f;
-            bx = ax; by = ay; bz = az;
+        if (!white(ca) || !white(cb) ||
+            !std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az) ||
+            !std::isfinite(bx) || !std::isfinite(by) || !std::isfinite(bz)) {
+            if (prim == 5) have_previous = false;
+            continue;
         }
-        if (!std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az) ||
-            !std::isfinite(bx) || !std::isfinite(by) || !std::isfinite(bz)) continue;
         const float alpha = float(std::min((ca >> 24) & 0xFF, (cb >> 24) & 0xFF)) / 255.0f;
         if (prim == 2) {
             const float dx = bx - ax, dy = by - ay, dz = bz - az;
             const float length2 = dx * dx + dy * dy + dz * dz;
-            if (!std::isfinite(length2) || length2 < 0.0225f || length2 > 400.0f) continue;
-            output[captured++] = {ax, ay, az, bx, by, bz, alpha};
-        } else if (pair > 0) {
-            // Join this cross-section center to the previous one, preserving the strip's
-            // own draw-space coordinates and alpha envelope.
-            const ParticleLine& previous = output[captured - 1];
-            const float dx = ax - previous.end_x, dy = ay - previous.end_y, dz = az - previous.end_z;
+            if (std::isfinite(length2) && length2 >= 0.0225f && length2 <= 400.0f)
+                output[captured++] = {ax, ay, az, bx, by, bz, alpha};
+            continue;
+        }
+
+        // For a triangle-strip ribbon, each adjacent vertex pair is one cross-section.
+        const float cx = (ax + bx) * 0.5f, cy = (ay + by) * 0.5f, cz = (az + bz) * 0.5f;
+        if (have_previous) {
+            const float dx = cx - previous_x, dy = cy - previous_y, dz = cz - previous_z;
             const float length2 = dx * dx + dy * dy + dz * dz;
             if (std::isfinite(length2) && length2 >= 0.0225f && length2 <= 400.0f)
-                output[captured++] = {previous.end_x, previous.end_y, previous.end_z, ax, ay, az, alpha};
-        } else {
-            output[captured++] = {ax, ay, az, ax, ay, az, alpha};
+                output[captured++] = {previous_x, previous_y, previous_z, cx, cy, cz,
+                                      std::min(previous_alpha, alpha)};
         }
-    }
-    // The first ribbon cross-section is only a seed, never a drawable line.
-    if (prim == 5 && captured) {
-        for (std::size_t i = 1; i < captured; ++i) output[i - 1] = output[i];
-        --captured;
+        previous_x = cx; previous_y = cy; previous_z = cz; previous_alpha = alpha;
+        have_previous = true;
     }
     return captured != 0;
 }
