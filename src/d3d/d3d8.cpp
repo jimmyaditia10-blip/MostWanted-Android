@@ -1674,9 +1674,9 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
         to_car_local(line.start_x, line.start_y, line.start_z);
         to_car_local(line.end_x, line.end_y, line.end_z);
         // Explicit Lightning aura local-axis offset requested for this build.
-        constexpr float kLightningAxisX = 15.0f;
-        constexpr float kLightningAxisY = 16.0f;
-        constexpr float kLightningAxisZ = 17.0f;
+        constexpr float kLightningAxisX = 30.0f;
+        constexpr float kLightningAxisY = 32.0f;
+        constexpr float kLightningAxisZ = 34.0f;
         line.start_x += kLightningAxisX;
         line.start_y += kLightningAxisY;
         line.start_z += kLightningAxisZ;
