@@ -1211,6 +1211,8 @@ void DrawLightningAura() {
     if (!std::isfinite(speed) || speed < 150.0f) return;
     const float intensity = lightning_aura::IntensityForSpeed(speed);
     if (intensity <= 0.0f) return;
+    // Keep secondary effects perceptible immediately after activation; ramp to full strength by 500 km/h.
+    const float fx_intensity = 0.42f + 0.58f * intensity;
 
     const Mat rotation = MatOf(car.rot, {});
     Vec axes[3] = {
@@ -1298,7 +1300,7 @@ void DrawLightningAura() {
         if (!project_world(world_point(x, y, z), p, &depth)) continue;
         const float perspective = std::clamp(10.0f / depth, 0.35f, 1.25f);
         const float radius = (7.0f + age * 16.0f) * scale * perspective;
-        const int alpha = int((1.0f - age) * intensity * 30.0f);
+        const int alpha = int((1.0f - age) * fx_intensity * 105.0f);
         dl->AddCircleFilled(p, radius * 1.75f, IM_COL32(67, 55, 42, alpha / 2), 20);
         dl->AddCircleFilled(p, radius, IM_COL32(143, 93, 42, alpha), 20);
         dl->AddCircleFilled(p, radius * 0.48f, IM_COL32(238, 155, 55, alpha / 3), 16);
@@ -1310,16 +1312,16 @@ void DrawLightningAura() {
     if (project_world(world_point(0.0f, 0.34f, -2.28f), core, &core_depth)) {
         const float perspective = std::clamp(10.0f / core_depth, 0.45f, 1.35f);
         const float r = 23.0f * scale * perspective * (0.9f + 0.1f * std::sin(time * 8.0f));
-        dl->AddCircleFilled(core, r * 2.2f, IM_COL32(255, 105, 0, int(22 * intensity)), 32);
-        dl->AddCircleFilled(core, r * 1.35f, IM_COL32(255, 174, 8, int(36 * intensity)), 32);
-        dl->AddCircleFilled(core, r * 0.62f, IM_COL32(255, 226, 115, int(58 * intensity)), 24);
-        dl->AddCircleFilled(core, r * 0.22f, IM_COL32(255, 255, 226, int(100 * intensity)), 20);
+        dl->AddCircleFilled(core, r * 2.2f, IM_COL32(255, 105, 0, int(92 * fx_intensity)), 32);
+        dl->AddCircleFilled(core, r * 1.35f, IM_COL32(255, 174, 8, int(145 * fx_intensity)), 32);
+        dl->AddCircleFilled(core, r * 0.62f, IM_COL32(255, 226, 115, int(195 * fx_intensity)), 24);
+        dl->AddCircleFilled(core, r * 0.22f, IM_COL32(255, 255, 226, int(235 * fx_intensity)), 20);
     }
     ImVec2 ground;
     if (project_world(world_point(0.0f, -0.25f, -3.1f), ground)) {
         const float r = 31.0f * scale;
-        dl->AddCircleFilled(ground, r * 1.55f, IM_COL32(255, 125, 0, int(12 * intensity)), 32);
-        dl->AddCircleFilled(ground, r * 0.75f, IM_COL32(255, 205, 36, int(18 * intensity)), 28);
+        dl->AddCircleFilled(ground, r * 1.55f, IM_COL32(255, 125, 0, int(52 * fx_intensity)), 32);
+        dl->AddCircleFilled(ground, r * 0.75f, IM_COL32(255, 205, 36, int(88 * fx_intensity)), 28);
     }
 
     // Animated sparks: short hot cores with long amber tails, fanning out from the rear.
@@ -1334,7 +1336,7 @@ void DrawLightningAura() {
         ImVec2 a, b;
         if (!project_world(world_point(x, y, z), a) ||
             !project_world(world_point(x + spread * 0.10f, y + lift * 0.06f, z - 0.38f), b)) continue;
-        const int alpha = int((1.0f - phase * 0.72f) * intensity * 220.0f);
+        const int alpha = int((1.0f - phase * 0.72f) * fx_intensity * 255.0f);
         dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 3), (2.8f + seed * 1.8f) * scale);
         dl->AddLine(a, b, IM_COL32(255, 198, 35, alpha), 1.35f * scale);
         dl->AddCircleFilled(a, (1.1f + seed * 0.8f) * scale, IM_COL32(255, 248, 190, alpha), 10);
@@ -1367,14 +1369,14 @@ void DrawLightningAura() {
         for (size_t i = 0; i + 1 < point_count; i += 2) {
             ImVec2 a, b;
             if (!project_local(points[i], a) || !project_local(points[i + 1], b)) continue;
-            const float glow = std::clamp(points[i].intensity, 0.0f, 1.0f);
+            const float glow = std::clamp(points[i].intensity * (0.58f + 0.42f * fx_intensity), 0.0f, 1.0f);
             const int alpha = int(235.0f * glow);
             if (alpha < 6) continue;
             // Amber outer bloom, electric-yellow body, white-hot animated core.
-            dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 5), 12.0f * scale);
-            dl->AddLine(a, b, IM_COL32(255, 164, 0, alpha / 2), 6.0f * scale);
-            dl->AddLine(a, b, IM_COL32(255, 204, 35, alpha), 3.0f * scale);
-            dl->AddLine(a, b, IM_COL32(255, 250, 205, std::min(255, alpha + 30)), 1.35f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 92, 0, alpha / 2), 18.0f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 142, 0, alpha), 9.0f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 190, 18, alpha), 4.2f * scale);
+            dl->AddLine(a, b, IM_COL32(255, 255, 232, std::min(255, alpha + 75)), 1.9f * scale);
         }
     };
 
