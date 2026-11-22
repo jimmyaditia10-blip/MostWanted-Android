@@ -11,6 +11,8 @@ namespace {
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kTwoPi = 2.0f * kPi;
 constexpr float kHalfWidth = 1.35f, kHalfLength = 2.25f, kHeight = 1.15f;
+// Move the complete car-relative lightning field forward along local +Z.
+constexpr float kLightningForwardOffset = 0.65f;
 constexpr float kMinLineLengthSq = 0.0004f;
 std::atomic<float> g_measured_speed_kmh{0.0f};
 std::mutex g_streak_mutex;
@@ -51,8 +53,8 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
     std::size_t at = 0;
     auto emit = [&](Vec3 a, Vec3 b, float brightness) {
         if (at + 2 > capacity) return;
-        output[at++] = {a.x, a.y, a.z, brightness};
-        output[at++] = {b.x, b.y, b.z, brightness};
+        output[at++] = {a.x, a.y, a.z + kLightningForwardOffset, brightness};
+        output[at++] = {b.x, b.y, b.z + kLightningForwardOffset, brightness};
     };
 
     // Every filament starts at a rear tire contact zone. Jagged, unevenly spaced
