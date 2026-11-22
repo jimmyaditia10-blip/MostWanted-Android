@@ -1176,33 +1176,78 @@ void DrawSaveNotice() {
 }
 
 void DrawLightningAura() {
-    // Draw the native streak replacements in the Vulkan/ImGui foreground after the game scene.
-    // Their sampled endpoints are already in car-local space and are projected with the same
-    // sampled body pose and live player camera.
-    const float intensity = lightning_aura::IntensityForSpeed(lightning_aura::MeasuredSpeedKmh());
-    if (intensity <= 0.0f || !Racing() || g_active) return;
+    // Draw in the game's foreground, but build the effect in a car-oriented basis:
+    // the game's longitudinal axis is not guaranteed to be local Z.
+    if (!Racing() || g_active) return;
 
     CarSample car{};
+    Vec travel{};
+    float sample_speed = 0.0f;
     {
         std::lock_guard lock(g_lock);
-        if (g_frames.empty()) return;
-        const Frame& frame = g_frames.back();
-        if (frame.player < 0 || size_t(frame.player) >= frame.count) return;
-        const size_t at = frame.first + size_t(frame.player);
+        if (g_frames.size() < 2) return;
+        const Frame& current = g_frames.back();
+        if (current.player < 0 || size_t(current.player) >= current.count) return;
+        const size_t at = current.first + size_t(current.player);
         if (at >= g_samples.size()) return;
         car = g_samples[at];
+
+        const Frame& previous_frame = g_frames[g_frames.size() - 2];
+        const CarSample* previous = Find(previous_frame, car.conn, car.info);
+        const double elapsed = current.t - previous_frame.t;
+        if (!previous || elapsed <= 1.0e-4) return;
+        travel = car.place - previous->place;
+        const float distance = Length(travel);
+        if (!std::isfinite(distance) || distance < 1.0e-3f) return;
+        sample_speed = distance / float(elapsed) * 3.6f;
     }
+
+    // Use the sampled displacement as the speed source. This avoids a stale zero
+    // from suppressing the aura when the game's HUD speed and our sample cadence differ.
+    const float measured = lightning_aura::MeasuredSpeedKmh();
+    const float speed = std::max(sample_speed, std::isfinite(measured) ? measured : 0.0f);
+    if (!std::isfinite(speed) || speed < 2.0f) return;
+    const float intensity = std::clamp(0.28f + std::max(0.0f, speed - 40.0f) / 460.0f * 0.72f,
+                                      0.28f, 1.0f);
+
+    const Mat rotation = MatOf(car.rot, {});
+    Vec axes[3] = {
+        Normal({rotation.m[0], rotation.m[1], rotation.m[2]}),
+        Normal({rotation.m[4], rotation.m[5], rotation.m[6]}),
+        Normal({rotation.m[8], rotation.m[9], rotation.m[10]})
+    };
+    const Vec direction = Normal(travel);
+    int forward_axis = 0;
+    float forward_alignment = Dot(axes[0], direction);
+    for (int i = 1; i < 3; ++i) {
+        const float alignment = Dot(axes[i], direction);
+        if (std::fabs(alignment) > std::fabs(forward_alignment)) {
+            forward_axis = i;
+            forward_alignment = alignment;
+        }
+    }
+    const Vec forward = axes[forward_axis] * (forward_alignment >= 0.0f ? 1.0f : -1.0f);
+    int up_axis = -1;
+    float up_alignment = -1.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (i == forward_axis) continue;
+        const float alignment = std::fabs(axes[i].z);
+        if (alignment > up_alignment) up_alignment = alignment, up_axis = i;
+    }
+    if (up_axis < 0) return;
+    const Vec up = axes[up_axis] * (axes[up_axis].z >= 0.0f ? 1.0f : -1.0f);
+    const Vec side = Normal(Cross(up, forward), axes[3 - forward_axis - up_axis]);
+    auto world_point = [&](float x, float y, float z) {
+        return car.place + side * x + up * y + forward * z;
+    };
 
     const uint32_t cam = kernel::R32(kViews + kPlayerView * kViewSize + kViewCamera);
     if (!Committed(cam, kCamFov + sizeof(uint16_t))) return;
     const float fov = float(kernel::G<uint16_t>(cam + kCamFov)) * ((2.0f * kPi) / 65536.0f);
     if (!std::isfinite(fov) || fov < 0.05f || fov > 3.0f) return;
 
-    // ImGui covers the physical output, while the game scene may be letterboxed to
-    // the selected gameplay aspect. Project into that scene rectangle, not the full
-    // device surface, otherwise the aura drifts into the bars / outside the gameplay.
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
-    if (screen.x <= 0 || screen.y <= 0) return;
+    if (screen.x <= 0.0f || screen.y <= 0.0f) return;
     const float aspect = Aspect();
     if (!std::isfinite(aspect) || aspect <= 0.1f) return;
     const float view_w = std::min(screen.x, screen.y * aspect);
@@ -1210,55 +1255,106 @@ void DrawLightningAura() {
     const float view_x = (screen.x - view_w) * 0.5f;
     const float view_y = (screen.y - view_h) * 0.5f;
     const float tan_h = std::tan(fov * 0.5f);
-    // The stored camera FOV is horizontal. Derive vertical FOV from the active
-    // gameplay viewport's aspect ratio instead of assuming a 16:9 device.
     const float tan_v = tan_h / aspect;
-    if (!std::isfinite(tan_h) || !std::isfinite(tan_v) || tan_h <= 0 || tan_v <= 0) return;
+    if (!std::isfinite(tan_h) || !std::isfinite(tan_v) || tan_h <= 0.0f || tan_v <= 0.0f) return;
     const float fx = view_w * 0.5f / tan_h;
     const float fy = view_h * 0.5f / tan_v;
 
-    const Mat body = MatOf(car.rot, car.place);
-    auto project = [&](const lightning_aura::Vertex& v, ImVec2& out) {
-        // Local -> world, using the game's row-vector body matrix.
-        const float wx = v.x * body.m[0] + v.y * body.m[4] + v.z * body.m[8] + body.m[12];
-        const float wy = v.x * body.m[1] + v.y * body.m[5] + v.z * body.m[9] + body.m[13];
-        const float wz = v.x * body.m[2] + v.y * body.m[6] + v.z * body.m[10] + body.m[14];
-        // World -> view, using the live player's camera matrix.
-        const float vx = wx * F(cam) + wy * F(cam + 0x10) + wz * F(cam + 0x20) + F(cam + 0x30);
-        const float vy = wx * F(cam + 4) + wy * F(cam + 0x14) + wz * F(cam + 0x24) + F(cam + 0x34);
-        const float vz = wx * F(cam + 8) + wy * F(cam + 0x18) + wz * F(cam + 0x28) + F(cam + 0x38);
-        if (!std::isfinite(vz) || vz <= 0.5f) return false;
+    auto project_world = [&](Vec p, ImVec2& out, float* depth = nullptr) {
+        const float vx = p.x * F(cam) + p.y * F(cam + 0x10) + p.z * F(cam + 0x20) + F(cam + 0x30);
+        const float vy = p.x * F(cam + 4) + p.y * F(cam + 0x14) + p.z * F(cam + 0x24) + F(cam + 0x34);
+        const float vz = p.x * F(cam + 8) + p.y * F(cam + 0x18) + p.z * F(cam + 0x28) + F(cam + 0x38);
+        if (!std::isfinite(vx) || !std::isfinite(vy) || !std::isfinite(vz) || vz <= 0.5f) return false;
         out = ImVec2(view_x + view_w * 0.5f + vx * fx / vz,
                      view_y + view_h * 0.5f + vy * fy / vz);
-        // Keep points near the gameplay picture. The ImGui foreground is full-screen,
-        // so this explicit viewport test prevents off-frame streaks from being drawn
-        // into the letterbox area.
+        if (depth) *depth = vz;
         return std::isfinite(out.x) && std::isfinite(out.y) &&
-               out.x >= view_x - view_w * 0.25f && out.x <= view_x + view_w * 1.25f &&
-               out.y >= view_y - view_h * 0.25f && out.y <= view_y + view_h * 1.25f;
+               out.x >= view_x - view_w * 0.18f && out.x <= view_x + view_w * 1.18f &&
+               out.y >= view_y - view_h * 0.18f && out.y <= view_y + view_h * 1.18f;
+    };
+    auto project_local = [&](const lightning_aura::Vertex& v, ImVec2& out) {
+        return project_world(world_point(v.x, v.y, v.z), out);
     };
 
-    // Animated body-emission bolts: roots sit on the front/rear bumper edges and side skirts.
-    // They are transformed by the recorded body matrix above, so they stay attached while driving.
-    constexpr size_t kBoltVertices = lightning_aura::kVertexCount;
-    lightning_aura::Vertex vertices[kBoltVertices]{};
-    const size_t count = lightning_aura::BuildVertices(
-        intensity, float(ImGui::GetTime()), vertices, kBoltVertices);
-    if (!count) return;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float scale = screen.y / 720.0f;
+    const float time = float(ImGui::GetTime());
+    const auto hash01 = [](uint32_t v) {
+        v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16;
+        return float(v & 0x00ffffffu) / float(0x01000000u);
+    };
+
+    // Volumetric-looking exhaust haze: layered, fading puffs dragged behind the bumper.
+    for (unsigned i = 0; i < 10; ++i) {
+        const float seed = float(i) * 1.71f;
+        const float age = std::fmod(time * 0.16f + float(i) * 0.103f, 1.0f);
+        const float x = std::sin(time * 0.72f + seed) * (0.18f + age * 1.25f);
+        const float y = 0.20f + age * 0.72f + std::sin(time * 0.9f + seed) * 0.10f;
+        const float z = -2.65f - age * 5.8f;
+        ImVec2 p;
+        float depth = 0.0f;
+        if (!project_world(world_point(x, y, z), p, &depth)) continue;
+        const float perspective = std::clamp(10.0f / depth, 0.35f, 1.25f);
+        const float radius = (7.0f + age * 16.0f) * scale * perspective;
+        const int alpha = int((1.0f - age) * intensity * 30.0f);
+        dl->AddCircleFilled(p, radius * 1.75f, IM_COL32(67, 55, 42, alpha / 2), 20);
+        dl->AddCircleFilled(p, radius, IM_COL32(143, 93, 42, alpha), 20);
+        dl->AddCircleFilled(p, radius * 0.48f, IM_COL32(238, 155, 55, alpha / 3), 16);
+    }
+
+    // Golden neon bloom at the rear emission point and a softer under-car reflection.
+    ImVec2 core;
+    float core_depth = 0.0f;
+    if (project_world(world_point(0.0f, 0.34f, -2.28f), core, &core_depth)) {
+        const float perspective = std::clamp(10.0f / core_depth, 0.45f, 1.35f);
+        const float r = 23.0f * scale * perspective * (0.9f + 0.1f * std::sin(time * 8.0f));
+        dl->AddCircleFilled(core, r * 2.2f, IM_COL32(255, 105, 0, int(22 * intensity)), 32);
+        dl->AddCircleFilled(core, r * 1.35f, IM_COL32(255, 174, 8, int(36 * intensity)), 32);
+        dl->AddCircleFilled(core, r * 0.62f, IM_COL32(255, 226, 115, int(58 * intensity)), 24);
+        dl->AddCircleFilled(core, r * 0.22f, IM_COL32(255, 255, 226, int(100 * intensity)), 20);
+    }
+    ImVec2 ground;
+    if (project_world(world_point(0.0f, -0.25f, -3.1f), ground)) {
+        const float r = 31.0f * scale;
+        dl->AddCircleFilled(ground, r * 1.55f, IM_COL32(255, 125, 0, int(12 * intensity)), 32);
+        dl->AddCircleFilled(ground, r * 0.75f, IM_COL32(255, 205, 36, int(18 * intensity)), 28);
+    }
+
+    // Animated sparks: short hot cores with long amber tails, fanning out from the rear.
+    for (unsigned i = 0; i < 34; ++i) {
+        const float seed = hash01(i * 97u + 13u);
+        const float phase = std::fmod(time * (0.72f + seed * 0.42f) + seed * 1.37f, 1.0f);
+        const float spread = (hash01(i * 193u + 5u) - 0.5f) * (1.5f + phase * 3.2f);
+        const float lift = (hash01(i * 271u + 9u) - 0.25f) * (0.8f + phase * 1.4f);
+        const float z = -2.5f - phase * (3.2f + seed * 4.8f);
+        const float x = (hash01(i * 331u + 17u) - 0.5f) * 2.2f + spread;
+        const float y = 0.18f + lift;
+        ImVec2 a, b;
+        if (!project_world(world_point(x, y, z), a) ||
+            !project_world(world_point(x + spread * 0.10f, y + lift * 0.06f, z - 0.38f), b)) continue;
+        const int alpha = int((1.0f - phase * 0.72f) * intensity * 220.0f);
+        dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 3), (2.8f + seed * 1.8f) * scale);
+        dl->AddLine(a, b, IM_COL32(255, 198, 35, alpha), 1.35f * scale);
+        dl->AddCircleFilled(a, (1.1f + seed * 0.8f) * scale, IM_COL32(255, 248, 190, alpha), 10);
+    }
+
+    // Multi-fork lightning filaments; the local model is now aligned to the measured
+    // direction of travel, so the fan always exits the rear instead of an arbitrary axis.
+    constexpr size_t kBoltVertices = lightning_aura::kVertexCount;
+    lightning_aura::Vertex vertices[kBoltVertices]{};
+    const size_t count = lightning_aura::BuildVertices(intensity, time, vertices, kBoltVertices);
     for (size_t i = 0; i + 1 < count; i += 2) {
         ImVec2 a, b;
-        if (!project(vertices[i], a) || !project(vertices[i + 1], b)) continue;
+        if (!project_local(vertices[i], a) || !project_local(vertices[i + 1], b)) continue;
         const float glow = std::clamp(vertices[i].intensity, 0.0f, 1.0f);
-        const int alpha = int(225.0f * glow);
-        if (alpha < 8) continue;
-        dl->AddLine(a, b, IM_COL32(255, 130, 0, alpha / 3), 8.0f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 190, 12, alpha), 3.2f * scale);
-        dl->AddLine(a, b, IM_COL32(255, 248, 190, std::min(255, alpha + 35)), 1.25f * scale);
+        const int alpha = int(235.0f * glow);
+        if (alpha < 6) continue;
+        dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 5), 12.0f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 164, 0, alpha / 2), 6.0f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 204, 35, alpha), 3.0f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 250, 205, std::min(255, alpha + 30)), 1.35f * scale);
     }
 }
-
 void DrawReplayHud() {
     DrawLightningAura();
     DrawSaveNotice();
