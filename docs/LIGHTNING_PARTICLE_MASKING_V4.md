@@ -6,7 +6,8 @@ The production geometry API now accepts `ParticleLine` samples from the game's n
 - The filament direction and length follow the native streak.
 - Only interior vertices are displaced into a sharp angular lightning profile.
 - Native particle alpha and vehicle speed control brightness.
-- The speed gate is 150 km/h, with full intensity at 500 km/h.
+- The speed gate is 150 km/h; intensity ramps linearly to maximum at 250 km/h.
+- From 250 through 500 km/h (and above), intensity remains clamped at maximum; it does not keep increasing.
 - Degenerate and non-finite samples are ignored.
 
 ## Integration contract
@@ -30,7 +31,7 @@ The capture hook itself is still not connected. This deliberately fails closed (
 - The adapter accepts white diffuse XYZ line pairs and paired-edge triangle-strip ribbons, validates finite endpoints/alpha, and rejects degenerate or implausibly long samples.
 - The mask is submitted with the native draw's current transforms, viewport and depth state. The white source draw is skipped only when the gold/white replacement draw is submitted successfully.
 - This remains a format-filtered capture candidate, not yet verified against a live game trace. If the native speed streak uses a different vertex declaration or draw path, the filter will fail closed and leave the original effect untouched.
-- The vehicle-speed publisher is still not connected to a verified Xbox vehicle-velocity source. No PC-only address or guessed Xbox offset is used. Therefore the 150–500 km/h intensity ramp cannot activate reliably until that source is mapped.
+- The vehicle-speed publisher is still not connected to a verified Xbox vehicle-velocity source. No PC-only address or guessed Xbox offset is used. Therefore the 150–250 km/h intensity ramp (held at maximum through 500 km/h) cannot activate reliably until that source is mapped.
 
 ## Verification status
 

@@ -41,8 +41,10 @@ void PublishMeasuredSpeed(float speed_kmh) noexcept {
 }
 float MeasuredSpeedKmh() noexcept { return g_measured_speed_kmh.load(std::memory_order_relaxed); }
 float IntensityForSpeed(float speed_kmh) noexcept {
+    // Ramp from zero at 150 km/h to full intensity at 250 km/h;
+    // Clamp01 keeps that maximum unchanged through and beyond 500 km/h.
     if (!std::isfinite(speed_kmh) || speed_kmh < 150.0f) return 0.0f;
-    return Clamp01((speed_kmh - 150.0f) / 350.0f);
+    return Clamp01((speed_kmh - 150.0f) / 100.0f);
 }
 std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
                           std::size_t capacity) noexcept {
