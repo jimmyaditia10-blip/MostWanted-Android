@@ -1492,6 +1492,14 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::size_t native_streak_count = 0;
     const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
         indices, a[1], a[0], native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (g_trace) {
+        static uint32_t capture_reports = 0;
+        if (capture_reports++ < 256)
+            LOGI("lightning-capture: path=INDEXED prim=%u indices=%u stride=%u fvf=%08X ps=%08X accepted=%u lines=%u",
+                 a[0], a[1], g_state.streams[0].stride, g_state.vs_handle,
+                 g_state.ps ? g_state.ps->handle : 0, streak_candidate ? 1u : 0u,
+                 uint32_t(native_streak_count));
+    }
     if (streak_candidate)
         game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     CountTarget(false, a[1]);
@@ -1713,6 +1721,13 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     std::size_t native_streak_count = 0;
     const bool streak_candidate = CaptureNativeWhiteStreaks(
         prim, vertices, count, stride, native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (g_trace) {
+        static uint32_t capture_reports = 0;
+        if (capture_reports++ < 256)
+            LOGI("lightning-capture: path=UP prim=%u count=%u stride=%u fvf=%08X ps=%08X accepted=%u lines=%u",
+                 prim, count, stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
+                 streak_candidate ? 1u : 0u, uint32_t(native_streak_count));
+    }
     if (streak_candidate) {
         game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     }
@@ -2023,11 +2038,37 @@ HLE_STDCALL(D3DDevice_DrawIndexedVerticesUP, 5) {
     const uint16_t* indices = static_cast<const uint16_t*>(HostPtr(a[2]));
     uint32_t vertices = uint32_t(*std::max_element(indices, indices + count)) + 1;
     SyncDeferred();
+    const auto* source_vertices = static_cast<const uint8_t*>(HostPtr(a[3]));
+    std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
+    std::size_t native_streak_count = 0;
+    std::vector<uint8_t> gathered(std::size_t(count) * stride);
+    bool gathered_ok = count <= 256 && (count % 2 == 0);
+    if (gathered_ok) {
+        for (uint32_t i = 0; i < count; ++i) {
+            const uint64_t offset = uint64_t(indices[i]) * stride;
+            if (offset + stride > uint64_t(vertices) * stride) { gathered_ok = false; break; }
+            std::memcpy(gathered.data() + std::size_t(i) * stride, source_vertices + offset, stride);
+        }
+    }
+    const bool streak_candidate = gathered_ok && CaptureNativeWhiteStreaks(
+        prim, gathered.data(), count, stride, native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (g_trace) {
+        static uint32_t capture_reports = 0;
+        if (capture_reports++ < 256)
+            LOGI("lightning-capture: path=INDEXED_UP prim=%u indices=%u stride=%u fvf=%08X gathered=%u accepted=%u lines=%u",
+                 prim, count, stride, g_state.vs_handle, gathered_ok ? 1u : 0u,
+                 streak_candidate ? 1u : 0u, uint32_t(native_streak_count));
+    }
+    if (streak_candidate)
+        game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     uint32_t copied = mem::VirtualFromPhysical(R32(UpVertices(indices, count * 2) + kResData));
     auto stream = g_state.streams[0];
-    g_state.streams[0] = {UpVertices(HostPtr(a[3]), vertices * stride), stride};
+    g_state.streams[0] = {UpVertices(source_vertices, vertices * stride), stride};
     CountTarget(false, count);
-    g_backend->Draw(g_state, prim, 0, count, static_cast<const uint8_t*>(HostPtr(copied)));
+    const bool replaced = streak_candidate &&
+        DrawLightningParticleMask(native_streaks.data(), native_streak_count);
+    if (!replaced)
+        g_backend->Draw(g_state, prim, 0, count, static_cast<const uint8_t*>(HostPtr(copied)));
     g_state.streams[0] = stream;
     return 0;
 }
