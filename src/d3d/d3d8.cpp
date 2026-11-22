@@ -1459,12 +1459,45 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     return 0;
 }
 
+bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_count,
+                                      uint32_t prim, game::lightning_aura::ParticleLine* output,
+                                      std::size_t capacity, std::size_t& captured) {
+    captured = 0;
+    const auto stream = g_state.streams[0];
+    if (!indices || !stream.vb || !stream.stride || index_count < 2 || index_count > 256 ||
+        (index_count & 1u)) return false;
+    const uint32_t physical = R32(stream.vb + kResData);
+    if (!physical) return false;
+    const uint32_t base = mem::VirtualFromPhysical(physical);
+    if (!base || !mem::IsCommitted(base)) return false;
+    std::vector<uint8_t> gathered(std::size_t(index_count) * stream.stride);
+    const auto* ix = reinterpret_cast<const uint16_t*>(indices);
+    for (uint32_t i = 0; i < index_count; ++i) {
+        const uint64_t vertex = uint64_t(ix[i]) + g_state.base_vertex;
+        const uint64_t address = uint64_t(base) + vertex * stream.stride;
+        if (address > 0xFFFFFFFFull || !mem::IsCommitted(uint32_t(address)) ||
+            !mem::IsCommitted(uint32_t(address + stream.stride - 1))) return false;
+        std::memcpy(gathered.data() + std::size_t(i) * stream.stride,
+                    HostPtr(uint32_t(address)), stream.stride);
+    }
+    return CaptureNativeWhiteStreaks(prim, gathered.data(), index_count, stream.stride,
+                                     output, capacity, captured);
+}
+
 HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+    std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
+    std::size_t native_streak_count = 0;
+    const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
+        a[0], indices, a[1], native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (streak_candidate)
+        game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     CountTarget(false, a[1]);
-    if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
+    const bool replaced = streak_candidate &&
+        DrawLightningParticleMask(native_streaks.data(), native_streak_count);
+    if (g_backend && !replaced) g_backend->Draw(g_state, a[0], 0, a[1], indices);
     return 0;
 }
 
