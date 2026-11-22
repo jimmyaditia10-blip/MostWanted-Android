@@ -1279,6 +1279,9 @@ void DrawLightningAura() {
     auto project_local = [&](const lightning_aura::Vertex& v, ImVec2& out) {
         return project_world(world_point(v.x, v.y, v.z), out);
     };
+    auto project_local_depth = [&](const lightning_aura::Vertex& v, ImVec2& out, float& depth) {
+        return project_world(world_point(v.x, v.y, v.z), out, &depth);
+    };
 
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float scale = screen.y / 720.0f;
@@ -1368,15 +1371,46 @@ void DrawLightningAura() {
     auto draw_filament = [&](const lightning_aura::Vertex* points, size_t point_count) {
         for (size_t i = 0; i + 1 < point_count; i += 2) {
             ImVec2 a, b;
-            if (!project_local(points[i], a) || !project_local(points[i + 1], b)) continue;
-            const float glow = std::clamp(points[i].intensity * (0.58f + 0.42f * fx_intensity), 0.0f, 1.0f);
-            const int alpha = int(235.0f * glow);
+            float da = 0.0f, db = 0.0f;
+            if (!project_local_depth(points[i], a, da) ||
+                !project_local_depth(points[i + 1], b, db)) continue;
+            const float depth = std::max(0.5f, (da + db) * 0.5f);
+            const float perspective = std::clamp(10.0f / depth, 0.32f, 1.65f);
+            const float glow = std::clamp(points[i].intensity * (0.68f + 0.32f * fx_intensity), 0.0f, 1.0f);
+            const int alpha = int(248.0f * glow);
             if (alpha < 6) continue;
-            // Amber outer bloom, electric-yellow body, white-hot animated core.
-            dl->AddLine(a, b, IM_COL32(255, 92, 0, alpha / 2), 18.0f * scale);
-            dl->AddLine(a, b, IM_COL32(255, 142, 0, alpha), 9.0f * scale);
-            dl->AddLine(a, b, IM_COL32(255, 190, 18, alpha), 4.2f * scale);
-            dl->AddLine(a, b, IM_COL32(255, 255, 232, std::min(255, alpha + 75)), 1.9f * scale);
+
+            // Screen-space ribbon: tapered polygon layers give each 3D-projected
+            // bolt a broad amber sheath, a hot yellow body and a narrow white core.
+            const float dx = b.x - a.x, dy = b.y - a.y;
+            const float len = std::sqrt(dx * dx + dy * dy);
+            if (len < 0.35f) continue;
+            const float nx = -dy / len, ny = dx / len;
+            const float pulse = 0.88f + 0.12f * std::sin(time * 17.0f + float(i) * 0.31f);
+            const float base = scale * perspective * pulse;
+            auto ribbon = [&](float wa, float wb, ImU32 color) {
+                const ImVec2 quad[4] = {
+                    ImVec2(a.x + nx * wa, a.y + ny * wa),
+                    ImVec2(b.x + nx * wb, b.y + ny * wb),
+                    ImVec2(b.x - nx * wb, b.y - ny * wb),
+                    ImVec2(a.x - nx * wa, a.y - ny * wa)
+                };
+                dl->AddConvexPolyFilled(quad, 4, color);
+            };
+
+            dl->AddLine(a, b, IM_COL32(255, 76, 0, alpha / 3), 30.0f * base);
+            ribbon(10.0f * base, 7.0f * base, IM_COL32(255, 105, 0, alpha / 5));
+            ribbon(5.8f * base, 3.8f * base, IM_COL32(255, 145, 0, alpha * 3 / 4));
+            ribbon(2.8f * base, 1.7f * base, IM_COL32(255, 207, 34, alpha));
+            ribbon(1.05f * base, 0.55f * base,
+                   IM_COL32(255, 255, 238, std::min(255, alpha + 65)));
+
+            // Hot nodes at sharp corners sell the branching, electrical 3D structure.
+            if ((i / 2) % 3 == 0) {
+                const float node = (1.4f + 1.5f * glow) * base;
+                dl->AddCircleFilled(a, node * 2.2f, IM_COL32(255, 122, 0, alpha / 3), 12);
+                dl->AddCircleFilled(a, node * 0.72f, IM_COL32(255, 247, 194, alpha), 10);
+            }
         }
     };
 
