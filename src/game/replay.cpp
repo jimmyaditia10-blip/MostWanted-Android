@@ -1198,13 +1198,24 @@ void DrawLightningAura() {
     const float fov = float(kernel::G<uint16_t>(cam + kCamFov)) * ((2.0f * kPi) / 65536.0f);
     if (!std::isfinite(fov) || fov < 0.05f || fov > 3.0f) return;
 
+    // ImGui covers the physical output, while the game scene may be letterboxed to
+    // the selected gameplay aspect. Project into that scene rectangle, not the full
+    // device surface, otherwise the aura drifts into the bars / outside the gameplay.
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
     if (screen.x <= 0 || screen.y <= 0) return;
+    const float aspect = Aspect();
+    if (!std::isfinite(aspect) || aspect <= 0.1f) return;
+    const float view_w = std::min(screen.x, screen.y * aspect);
+    const float view_h = view_w / aspect;
+    const float view_x = (screen.x - view_w) * 0.5f;
+    const float view_y = (screen.y - view_h) * 0.5f;
     const float tan_h = std::tan(fov * 0.5f);
-    const float tan_v = std::tan(fov * (9.0f / 16.0f) * 0.5f);
-    if (tan_h <= 0 || tan_v <= 0) return;
-    const float fx = screen.x * 0.5f / tan_h;
-    const float fy = screen.y * 0.5f / tan_v;
+    // The stored camera FOV is horizontal. Derive vertical FOV from the active
+    // gameplay viewport's aspect ratio instead of assuming a 16:9 device.
+    const float tan_v = tan_h / aspect;
+    if (!std::isfinite(tan_h) || !std::isfinite(tan_v) || tan_h <= 0 || tan_v <= 0) return;
+    const float fx = view_w * 0.5f / tan_h;
+    const float fy = view_h * 0.5f / tan_v;
 
     const Mat body = MatOf(car.rot, car.place);
     auto project = [&](const lightning_aura::Vertex& v, ImVec2& out) {
@@ -1217,10 +1228,14 @@ void DrawLightningAura() {
         const float vy = wx * F(cam + 4) + wy * F(cam + 0x14) + wz * F(cam + 0x24) + F(cam + 0x34);
         const float vz = wx * F(cam + 8) + wy * F(cam + 0x18) + wz * F(cam + 0x28) + F(cam + 0x38);
         if (!std::isfinite(vz) || vz <= 0.5f) return false;
-        out = ImVec2(screen.x * 0.5f + vx * fx / vz, screen.y * 0.5f + vy * fy / vz);
+        out = ImVec2(view_x + view_w * 0.5f + vx * fx / vz,
+                     view_y + view_h * 0.5f + vy * fy / vz);
+        // Keep points near the gameplay picture. The ImGui foreground is full-screen,
+        // so this explicit viewport test prevents off-frame streaks from being drawn
+        // into the letterbox area.
         return std::isfinite(out.x) && std::isfinite(out.y) &&
-               out.x > -screen.x && out.x < screen.x * 2 &&
-               out.y > -screen.y && out.y < screen.y * 2;
+               out.x >= view_x - view_w * 0.25f && out.x <= view_x + view_w * 1.25f &&
+               out.y >= view_y - view_h * 0.25f && out.y <= view_y + view_h * 1.25f;
     };
 
     // Animated body-emission bolts: roots sit on the front/rear bumper edges and side skirts.
