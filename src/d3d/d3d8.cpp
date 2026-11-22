@@ -20,6 +20,7 @@
 #include "gpu/backend.h"
 #include "gpu/texture.h"
 #include "gpu/vertex.h"
+#include "game/lightning_aura.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
 #include "xdk/layout.h"
@@ -1503,6 +1504,24 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     if (!g_backend || !count || !stride) return;
     SyncDeferred();
     auto stream = g_state.streams[0];
+    // Temporary high-speed draw census: collect candidate geometry metadata only.
+    // This deliberately does not publish particles until Light Trail is identified.
+    const float aura_speed = lightning_aura::MeasuredSpeedKmh();
+    if (g_trace && aura_speed >= 150.0f) {
+        static uint32_t candidate_dumps = 0;
+        if (candidate_dumps++ < 96) {
+            LOGI("lightning-census: UP speed=%.1f prim=%u count=%u stride=%u vs=%08X",
+                 aura_speed, prim, count, stride, g_state.vs_handle);
+            if (vertices && stride >= 12 && count <= 128) {
+                const auto* bytes = static_cast<const uint8_t*>(vertices);
+                for (uint32_t v = 0; v < std::min(count, 3u); ++v) {
+                    float xyz[3]{};
+                    std::memcpy(xyz, bytes + v * stride, sizeof(xyz));
+                    LOGI("lightning-census:   v%u %.3f %.3f %.3f", v, xyz[0], xyz[1], xyz[2]);
+                }
+            }
+        }
+    }
     if (g_trace && (g_state.vs_handle & 1) && g_state.vs && count <= 8) {
         static int dumps = 0;
         if (dumps++ < 8) {
