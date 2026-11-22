@@ -47,41 +47,65 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
     if (!output || capacity < kVertexCount || !std::isfinite(intensity) ||
         !std::isfinite(time_seconds) || time_seconds < 0.0f || intensity <= 0.0f) return 0;
     intensity = Clamp01(intensity);
-    const float phase = time_seconds * (8.0f + 12.0f * intensity);
-    // Local-space emission points: three across each bumper, plus both side skirts.
-    // The z sign is mirrored so the same pattern wraps both ends of the vehicle.
-    struct Root { float x, y, z, dx, dy, dz; };
+    const float phase = time_seconds * (10.0f + 16.0f * intensity);
+    // The reference effect is a rear-facing fan: bright trunks leave the rear bumper,
+    // fork outward/upward, and taper into long trails behind the car.
+    struct Root { float x, y, z, fan; };
     constexpr Root roots[kBoltCount] = {
-        {-1.05f,0.22f, 2.18f,-0.34f,0.72f, 0.62f}, {0.0f,0.30f, 2.24f,0.08f,0.94f,0.36f},
-        { 1.05f,0.22f, 2.18f, 0.38f,0.72f,0.58f}, {-1.18f,0.25f,-2.16f,-0.42f,0.76f,-0.48f},
-        {0.0f,0.30f,-2.22f,-0.06f,0.95f,-0.34f}, {1.18f,0.25f,-2.16f,0.44f,0.74f,-0.48f},
-        {-1.22f,0.28f, 1.05f,-0.92f,0.48f, 0.12f}, {-1.22f,0.28f, 0.0f,-0.98f,0.34f, 0.08f},
-        {-1.22f,0.28f,-1.05f,-0.90f,0.48f,-0.12f}, {1.22f,0.28f, 1.05f,0.92f,0.48f,0.12f},
-        {1.22f,0.28f, 0.0f,0.98f,0.34f,-0.08f}, {1.22f,0.28f,-1.05f,0.90f,0.48f,-0.12f}
+        {-1.08f,0.30f,-2.18f,-0.72f}, {-0.78f,0.34f,-2.24f,-0.52f},
+        {-0.43f,0.38f,-2.28f,-0.30f}, {-0.14f,0.40f,-2.30f,-0.12f},
+        { 0.14f,0.40f,-2.30f, 0.12f}, { 0.43f,0.38f,-2.28f, 0.30f},
+        { 0.78f,0.34f,-2.24f, 0.52f}, { 1.08f,0.30f,-2.18f, 0.72f}
     };
     std::size_t at = 0;
+    auto emit = [&](Vec3 a, Vec3 b, float brightness) {
+        if (at + 2 > capacity) return;
+        output[at++] = {a.x,a.y,a.z,brightness};
+        output[at++] = {b.x,b.y,b.z,brightness};
+    };
     for (unsigned bolt = 0; bolt < kBoltCount; ++bolt) {
         const Root& root = roots[bolt];
-        const float seed = float(bolt * 17u + 3u);
-        const float pulse = 0.72f + 0.28f * std::sin(phase * 1.35f + seed);
-        const float length = 0.75f + 0.85f * intensity + 0.18f * std::sin(phase + seed);
-        Vec3 dir{root.dx, root.dy, root.dz};
-        const float dl = std::sqrt(std::max(LengthSq(dir), 1.0e-6f));
-        dir = Scale(dir, 1.0f / dl);
-        const Vec3 side = Scale(Cross(dir, Vec3{0,1,0}), 1.0f);
-        Vec3 previous{root.x, root.y, root.z};
-        for (unsigned segment = 0; segment < kSegmentsPerBolt; ++segment) {
-            const float t = float(segment + 1) / float(kSegmentsPerBolt);
-            const float jitter = (Hash01(bolt*101u + segment*13u +
-                                  std::uint32_t(time_seconds*18.0f)) - 0.5f) *
-                                  (0.16f + 0.24f*intensity);
-            Vec3 next = Add(Vec3{root.x,root.y,root.z}, Scale(dir, length*t));
-            next = Add(next, Scale(side, jitter));
-            next.y += 0.10f * std::sin(phase + seed + t*8.0f);
-            const float brightness = intensity * pulse * (0.78f + 0.22f*std::sin(phase + seed + t*5.0f));
-            output[at++] = {previous.x,previous.y,previous.z,brightness};
-            output[at++] = {next.x,next.y,next.z,brightness};
-            previous = next;
+        const float seed = float(bolt * 19u + 7u);
+        const float pulse = 0.68f + 0.32f * std::sin(phase * 1.17f + seed);
+        const float length = 5.0f + 8.5f * intensity;
+        const Vec3 origin{root.x,root.y,root.z};
+        const Vec3 trunk{root.fan * 0.42f, 0.10f + 0.12f*intensity, -1.0f};
+        const float trunk_len = std::sqrt(std::max(LengthSq(trunk),1.0e-6f));
+        const Vec3 dir=Scale(trunk,1.0f/trunk_len);
+        const Vec3 side=Scale(Cross(dir,Vec3{0,1,0}),1.0f);
+        Vec3 previous=origin, fork_point=origin;
+        for (unsigned s=0;s<8;++s) {
+            const float t=float(s+1)/8.0f;
+            const float jitter=(Hash01(bolt*101u+s*23u+std::uint32_t(time_seconds*20.0f))-0.5f)*
+                               (0.20f+0.34f*intensity);
+            Vec3 next=Add(origin,Scale(dir,length*t));
+            next=Add(next,Scale(side,jitter));
+            next.y+=0.16f*std::sin(phase+seed+t*7.0f);
+            const float brightness=intensity*pulse*(0.82f+0.18f*std::sin(phase+seed+t*5.0f));
+            emit(previous,next,brightness);
+            previous=next;
+            if(s==3) fork_point=next;
+        }
+        // Two lightning forks peel away from the trunk, producing the broad fan seen
+        // in the supplied reference instead of a single straight speed streak.
+        for(unsigned branch=0;branch<2;++branch) {
+            const float sign=branch==0?-1.0f:1.0f;
+            const float spread=sign*(0.65f+0.30f*std::fabs(root.fan));
+            Vec3 branch_dir{root.fan*0.28f+spread,0.58f+0.10f*intensity,-0.62f};
+            const float bl=std::sqrt(std::max(LengthSq(branch_dir),1.0e-6f));
+            branch_dir=Scale(branch_dir,1.0f/bl);
+            Vec3 bp=fork_point;
+            const float branch_len=2.4f+3.8f*intensity;
+            for(unsigned s=0;s<3;++s) {
+                const float t=float(s+1)/3.0f;
+                const float j=(Hash01(bolt*313u+branch*71u+s*29u+
+                              std::uint32_t(time_seconds*17.0f))-0.5f)*(0.28f+0.35f*intensity);
+                Vec3 bn=Add(fork_point,Scale(branch_dir,branch_len*t));
+                bn=Add(bn,Scale(side,j));
+                bn.y+=0.12f*std::sin(phase+seed+float(branch)*2.0f+t*9.0f);
+                emit(bp,bn,intensity*pulse*(0.70f+0.30f*std::sin(phase+seed+t*8.0f)));
+                bp=bn;
+            }
         }
     }
     return at;
