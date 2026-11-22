@@ -1677,6 +1677,32 @@ void ReplayAudio(float* mix, uint32_t frames) {
     }
 }
 
+// Current player-car body transform, taken from the same CarRenderInfo block consumed by
+// CarRenderInfo::Render (0x255490). The cube camera identifies the player among live car
+// connections exactly as the replay recorder does; this is not a guessed world offset.
+bool PlayerCarBodyTransform(float out[16]) {
+    if (!out) return false;
+    std::lock_guard lock(g_lock);
+    Vec player{};
+    if (!PlayerMiddle(player)) return false;
+    float nearest = 6.0f;
+    bool found = false;
+    Mat body{};
+    ForEachConn([&](uint32_t conn, uint32_t) {
+        Mat candidate = ReadMat(conn + kConnBody);
+        Vec place{candidate.m[12], candidate.m[13], candidate.m[14]};
+        float distance = Length(place - player);
+        if (distance < nearest) {
+            nearest = distance;
+            body = candidate;
+            found = true;
+        }
+    });
+    if (!found) return false;
+    std::memcpy(out, body.m, sizeof(body.m));
+    return true;
+}
+
 bool ReplayMenuHit(float x, float y) {
     auto in = [x, y](const std::atomic<float>* r) { return r[2] > 0 && x >= r[0] && x < r[2] && y >= r[1] && y < r[3]; };
     return in(g_menu_rect) || (g_post_race && in(g_button_rect));
