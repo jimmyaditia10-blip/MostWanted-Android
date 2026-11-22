@@ -43,6 +43,8 @@ using namespace kernel;
 #define HAS_D3DDevice_SetPalette 0
 #endif
 
+namespace game { bool PlayerCarBodyTransform(float out[16]); }
+
 namespace d3d {
 
 namespace {
@@ -1649,44 +1651,62 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
     const float speed = MeasuredSpeedKmh();
     if (!g_backend || speed < 150.0f || !lines || !line_count) return false;
 
-    // Runtime mapping telemetry: retain the exact source draw matrices and endpoints so
-    // the Android car-render displacement can be compared against the native streak space.
+    // Use the live player CarRenderInfo body matrix (the exact matrix consumed by
+    // CarRenderInfo::Render at 0x255490), not the native streak draw's stale world space.
+    float car_world[16]{};
+    if (!game::PlayerCarBodyTransform(car_world)) return false;
+    const auto& streak_world = g_state.transforms[256];
+
+    // Convert streak vertices: streak-local -> world -> current player-car-local.
+    // The car body matrix is an orthonormal row-vector transform, so its inverse
+    // is the transposed rotation plus translated origin.
+    std::vector<ParticleLine> car_local(lines, lines + line_count);
+    auto to_car_local = [&](float& x, float& y, float& z) {
+        const float wx = x * streak_world[0] + y * streak_world[4] + z * streak_world[8] + streak_world[12];
+        const float wy = x * streak_world[1] + y * streak_world[5] + z * streak_world[9] + streak_world[13];
+        const float wz = x * streak_world[2] + y * streak_world[6] + z * streak_world[10] + streak_world[14];
+        const float dx = wx - car_world[12], dy = wy - car_world[13], dz = wz - car_world[14];
+        x = dx * car_world[0] + dy * car_world[1] + dz * car_world[2];
+        y = dx * car_world[4] + dy * car_world[5] + dz * car_world[6];
+        z = dx * car_world[8] + dy * car_world[9] + dz * car_world[10];
+    };
+    for (auto& line : car_local) {
+        to_car_local(line.start_x, line.start_y, line.start_z);
+        to_car_local(line.end_x, line.end_y, line.end_z);
+    }
+
     if (g_trace) {
         static uint32_t mapping_reports = 0;
         if (mapping_reports++ < 96) {
-            const auto& world = g_state.transforms[256];
-            const auto& view = g_state.transforms[2];
-            const auto& projection = g_state.transforms[3];
-            LOGI("lightning-map: speed=%.1f lines=%u fvf=%08X worldT=(%.3f,%.3f,%.3f)",
-                 speed, uint32_t(line_count), g_state.vs_handle, world[12], world[13], world[14]);
-            LOGI("lightning-map: world0=(%.4f,%.4f,%.4f,%.4f) world1=(%.4f,%.4f,%.4f,%.4f)",
-                 world[0], world[1], world[2], world[3], world[4], world[5], world[6], world[7]);
-            LOGI("lightning-map: viewT=(%.3f,%.3f,%.3f) proj=(%.4f,%.4f,%.4f,%.4f)",
-                 view[12], view[13], view[14], projection[0], projection[5], projection[10], projection[15]);
-            const auto& p = lines[0];
-            LOGI("lightning-map: first=(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) alpha=%.3f",
+            const auto& p = car_local[0];
+            LOGI("lightning-map: speed=%.1f lines=%u carT=(%.3f,%.3f,%.3f) streakT=(%.3f,%.3f,%.3f)",
+                 speed, uint32_t(line_count), car_world[12], car_world[13], car_world[14],
+                 streak_world[12], streak_world[13], streak_world[14]);
+            LOGI("lightning-map: local0=(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) alpha=%.3f",
                  p.start_x, p.start_y, p.start_z, p.end_x, p.end_y, p.end_z, p.alpha);
         }
     }
+
     std::vector<Vertex> masked(line_count * kParticleMaskVerticesPerLine);
     const std::size_t vertex_count = BuildParticleMaskVertices(
-        speed, float(g_presents) / 60.0f, lines, line_count, masked.data(), masked.size());
+        speed, float(g_presents) / 60.0f, car_local.data(), car_local.size(), masked.data(), masked.size());
     if (!vertex_count) return false;
 
     std::vector<LightningLineVertex> draw_vertices(vertex_count);
     gpu::State aura = g_state;
     aura.vs.reset();
     aura.ps.reset();
-    aura.vs_handle = 0x42;  // D3DFVF_XYZ | D3DFVF_DIFFUSE
+    aura.vs_handle = 0x42;
     aura.textures.fill(0);
     aura.palettes.fill(0);
+    std::memcpy(aura.transforms[256].data(), car_world, sizeof(car_world));
     aura.rs[gpu::kRsLighting] = 0;
     aura.rs[gpu::kRsColorVertex] = 1;
     aura.rs[gpu::kRsZEnable] = 1;
-    aura.rs[gpu::kRsCullMode] = 1;  // D3DCULL_NONE
+    aura.rs[gpu::kRsCullMode] = 1;
     aura.simple[gpu::kMBlendEnable >> 2] = 1;
-    aura.simple[gpu::kMSrcBlend >> 2] = 5;  // D3DBLEND_SRCALPHA
-    aura.simple[gpu::kMDestBlend >> 2] = 2; // D3DBLEND_ONE
+    aura.simple[gpu::kMSrcBlend >> 2] = 5;
+    aura.simple[gpu::kMDestBlend >> 2] = 2;
     aura.simple[gpu::kMZWriteEnable >> 2] = 0;
     aura.simple[gpu::kMColorWriteEnable >> 2] = 0xF;
 
@@ -1699,10 +1719,10 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
         }
         aura.streams[0] = {UpVertices(draw_vertices.data(), uint32_t(draw_vertices.size() * sizeof(LightningLineVertex))),
                            sizeof(LightningLineVertex)};
-        g_backend->Draw(aura, 2, 0, uint32_t(vertex_count), nullptr); // D3DPT_LINELIST
+        g_backend->Draw(aura, 2, 0, uint32_t(vertex_count), nullptr);
     };
-    submit(false); // gold halo
-    submit(true);  // bright white core
+    submit(false);
+    submit(true);
     return true;
 }
 
