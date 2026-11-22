@@ -36,3 +36,8 @@ The capture hook itself is still not connected. This deliberately fails closed (
 ## Verification status
 
 No Android build or in-game capture has been run for this adapter commit. Source integration is committed; runtime correctness remains unverified.
+
+
+## Reference wind-trail visual pass
+
+The captured native streak mask now emits three tapered filaments per accepted source line. The center filament remains anchored to the exact native start/end coordinates; two outer filaments fan out only through the interior and converge at both endpoints. This creates a wider, jagged lightning ribbon without changing the native draw transform or moving the vehicle-relative source positions. The D3D8 replacement draw stacks additive orange, gold, and white-hot color passes. The speed gate remains 150 km/h with full intensity at 250 km/h and a clamped plateau through 500 km/h. Runtime appearance still requires an Android build and in-game capture; the source change alone does not prove the target visual has been reached.
