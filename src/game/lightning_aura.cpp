@@ -57,20 +57,20 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
         output[at++] = {b.x, b.y, b.z + kLightningForwardOffset, brightness};
     };
 
-    // Every filament starts at a rear tire contact zone. Jagged, unevenly spaced
-    // vertices create lightning forks instead of rigid ruler-straight strokes.
+    // Bodykit-mounted filaments: roots sit on the lower side panels, not at the tires.
+    // They spread outward from the rocker/side-skirt area with irregular lightning kinks.
     for (int side_sign : {-1, 1}) {
         const float side = float(side_sign);
-        const Vec3 wheel{side * 1.08f, -0.22f, -1.42f};
-        Vec3 p = wheel;
+        const Vec3 bodykit{side * 0.94f, 0.02f, -1.42f};
+        Vec3 p = bodykit;
         for (unsigned s = 0; s < 8; ++s) {
             const float t = float(s + 1) / 8.0f;
             const std::uint32_t tick = std::uint32_t(time_seconds * 23.0f);
             const float n1 = Hash01(tick + s * 47u + (side_sign > 0 ? 11u : 97u)) - 0.5f;
             const float n2 = Hash01(tick * 3u + s * 83u + (side_sign > 0 ? 53u : 29u)) - 0.5f;
-            Vec3 q{side * (1.08f + 2.35f * t + n1 * (0.22f + 0.18f * intensity)),
-                   -0.22f - 0.85f * t + n2 * (0.24f + 0.16f * intensity),
-                   -1.42f - 4.1f * t};
+            Vec3 q{side * (0.94f + 1.85f * t + n1 * (0.22f + 0.18f * intensity)),
+                   0.02f - 0.18f * t + n2 * (0.20f + 0.14f * intensity),
+                   -1.42f - 3.1f * t};
             q.x += side * (0.12f * std::sin(phase * 0.73f + t * 13.0f) +
                            0.08f * std::sin(phase * 1.31f + t * 27.0f));
             q.y += 0.10f * std::sin(phase + t * 17.0f + side);
@@ -80,14 +80,13 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
         }
     }
 
-    // Multiple short trunks around both rear wheels. Each trunk forks at an
-    // irregular point, with asymmetric kinks and changing branch angles.
+    // Secondary bolts branch from both bodykit side panels.
     struct Root { float x, y, z, fan; };
     constexpr Root roots[kBoltCount] = {
-        {-1.34f,-0.36f,-1.48f,-1.00f}, {-1.20f,-0.08f,-1.34f,-0.76f},
-        {-1.02f, 0.12f,-1.28f,-0.52f}, {-0.88f, 0.30f,-1.38f,-0.30f},
-        { 0.88f, 0.30f,-1.38f, 0.30f}, { 1.02f, 0.12f,-1.28f, 0.52f},
-        { 1.20f,-0.08f,-1.34f, 0.76f}, { 1.34f,-0.36f,-1.48f, 1.00f}
+        {-1.02f,-0.02f,-1.48f,-1.00f}, {-0.98f, 0.08f,-1.34f,-0.76f},
+        {-0.94f, 0.18f,-1.28f,-0.52f}, {-0.90f, 0.28f,-1.38f,-0.30f},
+        { 0.90f, 0.28f,-1.38f, 0.30f}, { 0.94f, 0.18f,-1.28f, 0.52f},
+        { 0.98f, 0.08f,-1.34f, 0.76f}, { 1.02f,-0.02f,-1.48f, 1.00f}
     };
     for (unsigned bolt = 0; bolt < kBoltCount; ++bolt) {
         const Root& root = roots[bolt];
@@ -95,7 +94,7 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
         const float pulse = 0.70f + 0.30f * std::sin(phase * 1.17f + seed);
         const float length = 4.0f + 7.0f * intensity;
         const Vec3 origin{root.x, root.y, root.z};
-        Vec3 direction{root.fan * 0.38f, -0.18f - 0.12f * intensity, -1.0f};
+        Vec3 direction{root.fan * 0.72f, -0.06f - 0.08f * intensity, -0.62f};
         direction = Scale(direction, 1.0f / std::sqrt(std::max(LengthSq(direction), 1.0e-6f)));
         const Vec3 side = Scale(Cross(direction, Vec3{0, 1, 0}), 1.0f);
         Vec3 p = origin, fork{};
