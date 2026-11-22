@@ -1500,6 +1500,22 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::size_t native_streak_count = 0;
     const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
         indices, a[1], a[0], native_streaks.data(), native_streaks.size(), native_streak_count);
+    // Bounded transform census: record draw identity and world matrix independently of
+    // the intermittent verbose trace window, so the APK-shifted player-car matrix can
+    // be identified and compared with the native speed-streak matrix.
+    {
+        static uint32_t transform_reports = 0;
+        if (transform_reports++ < 512) {
+            const auto& world = g_state.transforms[256];
+            LOGI("lightning-xform: prim=%u indices=%u stride=%u fvf=%08X ps=%08X streak=%u lines=%u "
+                 "T=(%.4f,%.4f,%.4f) R0=(%.4f,%.4f,%.4f) R1=(%.4f,%.4f,%.4f) R2=(%.4f,%.4f,%.4f)",
+                 a[0], a[1], g_state.streams[0].stride, g_state.vs_handle,
+                 g_state.ps ? g_state.ps->handle : 0, streak_candidate ? 1u : 0u,
+                 uint32_t(native_streak_count), world[12], world[13], world[14],
+                 world[0], world[1], world[2], world[4], world[5], world[6],
+                 world[8], world[9], world[10]);
+        }
+    }
     if (g_trace) {
         static uint32_t capture_reports = 0;
         if (capture_reports++ < 256)
