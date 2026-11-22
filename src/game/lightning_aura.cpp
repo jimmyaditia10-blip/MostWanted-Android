@@ -72,13 +72,14 @@ std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
         }
     }
 
-    // Eight lower/rear trunks fan out from the bumper, with two sharp forks apiece.
+    // The lower branching bolts now originate at the left and right rear wheel areas,
+    // not across the bumper. Four staggered roots per wheel keep the two clusters organic.
     struct Root { float x, y, z, fan; };
     constexpr Root roots[kBoltCount] = {
-        {-1.08f,0.30f,-2.18f,-0.82f}, {-0.78f,0.34f,-2.24f,-0.62f},
-        {-0.43f,0.38f,-2.28f,-0.40f}, {-0.14f,0.40f,-2.30f,-0.16f},
-        { 0.14f,0.40f,-2.30f, 0.16f}, { 0.43f,0.38f,-2.28f, 0.40f},
-        { 0.78f,0.34f,-2.24f, 0.62f}, { 1.08f,0.30f,-2.18f, 0.82f}
+        {-1.18f,-0.10f,-1.42f,-0.92f}, {-1.08f,0.02f,-1.34f,-0.72f},
+        {-0.98f,0.14f,-1.28f,-0.54f}, {-0.88f,0.24f,-1.22f,-0.38f},
+        { 0.88f,0.24f,-1.22f, 0.38f}, { 0.98f,0.14f,-1.28f, 0.54f},
+        { 1.08f,0.02f,-1.34f, 0.72f}, { 1.18f,-0.10f,-1.42f, 0.92f}
     };
     for (unsigned bolt = 0; bolt < kBoltCount; ++bolt) {
         const Root& root = roots[bolt];
