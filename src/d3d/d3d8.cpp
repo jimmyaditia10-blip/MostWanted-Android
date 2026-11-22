@@ -1632,6 +1632,26 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
     using namespace game::lightning_aura;
     const float speed = MeasuredSpeedKmh();
     if (!g_backend || speed < 150.0f || !lines || !line_count) return false;
+
+    // Runtime mapping telemetry: retain the exact source draw matrices and endpoints so
+    // the Android car-render displacement can be compared against the native streak space.
+    if (g_trace) {
+        static uint32_t mapping_reports = 0;
+        if (mapping_reports++ < 96) {
+            const auto& world = g_state.transforms[256];
+            const auto& view = g_state.transforms[2];
+            const auto& projection = g_state.transforms[3];
+            LOGI("lightning-map: speed=%.1f lines=%u fvf=%08X worldT=(%.3f,%.3f,%.3f)",
+                 speed, uint32_t(line_count), g_state.vs_handle, world[12], world[13], world[14]);
+            LOGI("lightning-map: world0=(%.4f,%.4f,%.4f,%.4f) world1=(%.4f,%.4f,%.4f,%.4f)",
+                 world[0], world[1], world[2], world[3], world[4], world[5], world[6], world[7]);
+            LOGI("lightning-map: viewT=(%.3f,%.3f,%.3f) proj=(%.4f,%.4f,%.4f,%.4f)",
+                 view[12], view[13], view[14], projection[0], projection[5], projection[10], projection[15]);
+            const auto& p = lines[0];
+            LOGI("lightning-map: first=(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) alpha=%.3f",
+                 p.start_x, p.start_y, p.start_z, p.end_x, p.end_y, p.end_z, p.alpha);
+        }
+    }
     std::vector<Vertex> masked(line_count * kParticleMaskVerticesPerLine);
     const std::size_t vertex_count = BuildParticleMaskVertices(
         speed, float(g_presents) / 60.0f, lines, line_count, masked.data(), masked.size());
