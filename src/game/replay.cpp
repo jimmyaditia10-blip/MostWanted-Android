@@ -1354,6 +1354,15 @@ void DrawLightningAura() {
     const size_t mask_count = lightning_aura::BuildParticleMaskVertices(
         speed, time, native_lines, native_count, mask_vertices, kMaskCapacity);
 
+    // One concise runtime confirmation lets the first device test distinguish the
+    // car-relative visual fallback from a successfully captured native streak mask.
+    static bool reported_activation = false;
+    if (!reported_activation) {
+        LOGI("lightning aura active: speed %.1f km/h, native streaks %zu, mask vertices %zu, mode %s",
+             speed, native_count, mask_count, mask_count ? "native-mask" : "car-relative");
+        reported_activation = true;
+    }
+
     auto draw_filament = [&](const lightning_aura::Vertex* points, size_t point_count) {
         for (size_t i = 0; i + 1 < point_count; i += 2) {
             ImVec2 a, b;
