@@ -1492,6 +1492,42 @@ bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_cou
                                      output, capacity, captured);
 }
 
+// Read a bounded sample of indexed stream-0 XYZ triples without changing the draw.
+// This is diagnostic only: it lets us identify the player-body mesh's local-space bounds.
+bool MeasureIndexedRawXYZ(const uint8_t* indices, uint32_t index_count,
+                           float& min_x, float& min_y, float& min_z,
+                           float& max_x, float& max_y, float& max_z,
+                           uint32_t& valid) {
+    valid = 0;
+    const auto stream = g_state.streams[0];
+    if (!indices || !stream.vb || stream.stride < 12 || !index_count ||
+        index_count > 200000) return false;
+    const uint32_t physical = R32(stream.vb + kResData);
+    if (!physical) return false;
+    const uint32_t base = mem::VirtualFromPhysical(physical);
+    if (!base || !mem::IsCommitted(base)) return false;
+    min_x = min_y = min_z = 1.0e30f;
+    max_x = max_y = max_z = -1.0e30f;
+    const auto* ix = reinterpret_cast<const uint16_t*>(indices);
+    const uint32_t step = std::max<uint32_t>(1, index_count / 4096);
+    for (uint32_t i = 0; i < index_count; i += step) {
+        const uint64_t vertex = uint64_t(ix[i]) + g_state.base_vertex;
+        const uint64_t address = uint64_t(base) + vertex * stream.stride;
+        if (address > 0xFFFFFFFFull ||
+            !mem::IsCommitted(uint32_t(address)) ||
+            !mem::IsCommitted(uint32_t(address + 11))) continue;
+        float p[3];
+        std::memcpy(p, HostPtr(uint32_t(address)), sizeof(p));
+        if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]) ||
+            std::fabs(p[0]) > 10000.0f || std::fabs(p[1]) > 10000.0f ||
+            std::fabs(p[2]) > 10000.0f) continue;
+        min_x = std::min(min_x, p[0]); min_y = std::min(min_y, p[1]); min_z = std::min(min_z, p[2]);
+        max_x = std::max(max_x, p[0]); max_y = std::max(max_y, p[1]); max_z = std::max(max_z, p[2]);
+        ++valid;
+    }
+    return valid >= 3;
+}
+
 HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
@@ -1500,18 +1536,26 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::size_t native_streak_count = 0;
     const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
         indices, a[1], a[0], native_streaks.data(), native_streaks.size(), native_streak_count);
-    // Bounded transform census: record draw identity and world matrix independently of
-    // the intermittent verbose trace window, so the APK-shifted player-car matrix can
-    // be identified and compared with the native speed-streak matrix.
+    // Bounded body-geometry census: log sampled raw XYZ bounds together with each
+    // indexed draw's world matrix. The actual player-body draw can then be isolated
+    // against the bumper/side-skirt anchors from Build #55.
     {
         static uint32_t transform_reports = 0;
-        if (transform_reports++ < 512) {
+        if (transform_reports++ < 2048) {
             const auto& world = g_state.transforms[256];
-            LOGI("lightning-xform: prim=%u indices=%u stride=%u fvf=%08X ps=%08X streak=%u lines=%u "
+            float lo_x, lo_y, lo_z, hi_x, hi_y, hi_z;
+            uint32_t valid_xyz = 0;
+            const bool have_xyz = MeasureIndexedRawXYZ(indices, a[1],
+                lo_x, lo_y, lo_z, hi_x, hi_y, hi_z, valid_xyz);
+            LOGI("lightning-body-census: prim=%u indices=%u stride=%u fvf=%08X ps=%08X streak=%u lines=%u "
+                 "xyz=%u bounds=(%.4f,%.4f,%.4f)..(%.4f,%.4f,%.4f) "
                  "T=(%.4f,%.4f,%.4f) R0=(%.4f,%.4f,%.4f) R1=(%.4f,%.4f,%.4f) R2=(%.4f,%.4f,%.4f)",
                  a[0], a[1], g_state.streams[0].stride, g_state.vs_handle,
                  g_state.ps ? g_state.ps->handle : 0, streak_candidate ? 1u : 0u,
-                 uint32_t(native_streak_count), world[12], world[13], world[14],
+                 uint32_t(native_streak_count), have_xyz ? valid_xyz : 0u,
+                 have_xyz ? lo_x : 0.0f, have_xyz ? lo_y : 0.0f, have_xyz ? lo_z : 0.0f,
+                 have_xyz ? hi_x : 0.0f, have_xyz ? hi_y : 0.0f, have_xyz ? hi_z : 0.0f,
+                 world[12], world[13], world[14],
                  world[0], world[1], world[2], world[4], world[5], world[6],
                  world[8], world[9], world[10]);
         }
