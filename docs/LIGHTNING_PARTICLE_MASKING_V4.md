@@ -75,3 +75,13 @@ This is a temporary diagnostic build. Remove the cross draw and its log after th
 - The D3D capture filter now accepts white native geometry only while the current particle resource ID matches that resolved NOS handle. It preserves the original vertex coordinates and the native draw transform.
 
 The resource identity is established statically from the XBE. Build verification remains pending, and the speed publisher still needs a verified Xbox source before the 150–250 km/h gate can activate.
+
+
+## Static Xbox speed source
+
+- The XBE registers `GetSimableSpeedKmh` at `0x001879C0`.
+- The accessor accepts a Simable pointer, calls its vtable at `+0x54`, then the physics object's vtable at `+0x2C`, multiplies the result by the XBE's km/h conversion constant, and returns the result in x87 ST0.
+- The Simable manager global is `0x0048FC50`. Its indexed getter `0x0016C530` returns `manager + 0x20 + index * 0x1A0`; its count getter `0x0016C550` reads `manager + 0x1A20`.
+- The runtime hook publishes the accessor result only for manager slot 0 while the game is in race state, preventing speed values from other Simables from driving the aura.
+
+The speed accessor and manager layout are statically mapped. The player-slot selection is implemented as the single-player slot-0 path; final build validation is pending.
