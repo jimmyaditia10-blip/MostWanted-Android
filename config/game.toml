@@ -271,6 +271,11 @@ XNetXnAddrToInAddr                                   = 0x384A7B
 XOnlineCleanup                                       = 0x39826B
 XOnlineStartup                                       = 0x39816E
 
+# Force the game's particle-system renderer to be emitted as a callable function so
+# game.cpp can bracket its D3D calls for a bounded, observational trace.
+[[function]]
+at = 0x000CE8B0
+
 [data]
 # loaded by D3DDevice_SetVertexShader (0x373927) for an FVF handle
 D3D_FvfShader               = 0x384468
