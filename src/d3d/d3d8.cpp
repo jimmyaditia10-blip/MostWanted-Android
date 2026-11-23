@@ -1429,10 +1429,8 @@ HLE_STDCALL(D3DDevice_SetPixelShaderConstant, 3) {
 
 // drawing
 
-namespace {
 void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint32_t stride,
                           const uint16_t* indices, const void* vertices);
-}  // namespace
 
 HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
@@ -1471,8 +1469,6 @@ bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t cou
                                uint32_t stride, game::lightning_aura::ParticleLine* output,
                                std::size_t capacity, std::size_t& captured);
 bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, std::size_t line_count);
-void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint32_t stride,
-                          const uint16_t* indices, const void* vertices);
 }  // namespace
 
 bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_count,
@@ -1882,7 +1878,7 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
                 const auto& l = source_lines[left];
                 const auto& rr = source_lines[right];
                 LOGI("lightning-marker-debug: frame=%u speed=%.1f left[%u]=(%.5f,%.5f,%.5f)->(%.5f,%.5f,%.5f) right[%u]=(%.5f,%.5f,%.5f)->(%.5f,%.5f,%.5f)",
-                     g_presents, speed, uint32_t(left), l.start_x, l.start_y, l.start_z,
+                     g_presents.load(std::memory_order_relaxed), speed, uint32_t(left), l.start_x, l.start_y, l.start_z,
                      l.end_x, l.end_y, l.end_z, uint32_t(right),
                      rr.start_x, rr.start_y, rr.start_z, rr.end_x, rr.end_y, rr.end_z);
             }
