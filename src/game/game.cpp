@@ -424,6 +424,28 @@ bool Racing() { return mem::IsCommitted(kGameFlowState) && kernel::R32(kGameFlow
 
 }  // namespace game
 
+// 0xC5900 resolves the particle resource ID passed by 0xCE8B0. The XBE's
+// CARFX_NOS_BLOWOFF name table entry resolves into handle slot 0x469A44.
+X86_EXTERN_FUNC(__imp__sub_000C5900);
+X86_FUNC(sub_000C5900) {
+    if (game::lightning_aura::NativeParticleDrawScopeActive()) {
+        constexpr uint32_t kNosBlowoffHandle = 0x00469A44;
+        const uint32_t effect_id = kernel::R32(ctx.esp + 4);
+        const uint32_t nos_handle = mem::IsCommitted(kNosBlowoffHandle)
+            ? kernel::R32(kNosBlowoffHandle) : 0;
+        const bool match = nos_handle != 0 && effect_id == nos_handle;
+        game::lightning_aura::SetNativeParticleEffectMatch(match);
+        if (match) {
+            static uint32_t reports = 0;
+            if (reports++ < 32)
+                game::lightning_aura::WriteDiagnosticLog(
+                    "lightning-nos-effect: id=%08X handle=%08X source=CARFX_NOS_BLOWOFF",
+                    effect_id, nos_handle);
+        }
+    }
+    __imp__sub_000C5900(ctx, base);
+}
+
 // The game's particle manager (0x482CC0) is rendered by 0x000CE8B0. Trace this
 // real game-side pass and bracket its nested D3D calls so the adapter can identify
 // the exact vertex formats, shaders, buffers and transforms used by native particles.
@@ -448,8 +470,11 @@ X86_FUNC(sub_000CE8B0) {
              kernel::R32(manager + 12));
     }
     const bool was_active = game::lightning_aura::NativeParticleDrawScopeActive();
+    const bool was_match = game::lightning_aura::NativeParticleEffectMatched();
+    game::lightning_aura::SetNativeParticleEffectMatch(false);
     game::lightning_aura::SetNativeParticleDrawScope(true);
     __imp__sub_000CE8B0(ctx, base);
+    game::lightning_aura::SetNativeParticleEffectMatch(was_match);
     game::lightning_aura::SetNativeParticleDrawScope(was_active);
     if (report) {
         LOGI("lightning-xbe-particle: leave call=%u eax=%08X ecx=%08X", call, ctx.eax, ctx.ecx);
