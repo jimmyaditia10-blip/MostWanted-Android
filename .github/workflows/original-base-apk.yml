@@ -2,6 +2,12 @@ name: Rangga Casper Original Base APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/original-base-apk.yml
+      - tools/integrate_pustaka_apk.py
   push:
     branches:
       - main
@@ -18,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build clean base APK from main
+    name: Build base APK with complete Pustaka runtime
     runs-on: windows-2025
     timeout-minutes: 300
     env:
@@ -29,10 +35,10 @@ jobs:
       PUSTAKA_APK_SHA256: 222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc
 
     steps:
-      - name: Checkout clean base branch
+      - name: Checkout commit under validation
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
 
       - name: Set up Java 17
