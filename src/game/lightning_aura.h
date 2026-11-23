@@ -7,6 +7,7 @@ namespace game::lightning_aura {
 float IntensityForSpeed(float speed_kmh) noexcept;
 void PublishMeasuredSpeed(float speed_kmh) noexcept;
 float MeasuredSpeedKmh() noexcept;
+void WriteDiagnosticLog(const char* format, ...) noexcept;
 
 // True only while the Xbox particle-system draw routine is issuing native D3D calls.
 // Used for bounded, observational renderer tracing; it does not alter particle state.
