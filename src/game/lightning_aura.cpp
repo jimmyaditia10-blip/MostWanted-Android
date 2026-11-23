@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <mutex>
 #include <limits>
+#include <cstdarg>
+#include <cstdio>
+#include <sys/stat.h>
 
 namespace game::lightning_aura {
 namespace {
@@ -36,6 +39,21 @@ float LengthSq(Vec3 v) noexcept { return v.x*v.x+v.y*v.y+v.z*v.z; }
 Vec3 Scale(Vec3 v, float s) noexcept { return {v.x*s,v.y*s,v.z*s}; }
 Vec3 Add(Vec3 a, Vec3 b) noexcept { return {a.x+b.x,a.y+b.y,a.z+b.z}; }
 Vec3 Sub(Vec3 a, Vec3 b) noexcept { return {a.x-b.x,a.y-b.y,a.z-b.z}; }
+}
+void WriteDiagnosticLog(const char* format, ...) noexcept {
+    if (!format) return;
+    static std::mutex file_mutex;
+    std::lock_guard<std::mutex> lock(file_mutex);
+    ::mkdir("/sdcard/MostWanted", 0775);
+    std::FILE* file = std::fopen("/sdcard/MostWanted/lightning-particle-trace.log", "ab");
+    if (!file) return;
+    va_list args;
+    va_start(args, format);
+    std::vfprintf(file, format, args);
+    va_end(args);
+    std::fputc('\n', file);
+    std::fflush(file);
+    std::fclose(file);
 }
 void PublishMeasuredSpeed(float speed_kmh) noexcept {
     g_measured_speed_kmh.store(std::isfinite(speed_kmh) && speed_kmh >= 0.0f ? speed_kmh : 0.0f,
