@@ -1,0 +1,79 @@
+name: Rangga Casper Original Base APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: original-base-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build clean base APK from main
+    runs-on: windows-2025
+    timeout-minutes: 300
+    env:
+      NDK_VERSION: 28.2.13676358
+      CMAKE_VERSION: 3.31.6
+
+    steps:
+      - name: Checkout clean base branch
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Install Android SDK, NDK and CMake
+        shell: cmd
+        run: call "%ANDROID_HOME%\\cmdline-tools\\latest\\bin\\sdkmanager.bat" --install "platforms;android-34" "ndk;%NDK_VERSION%" "cmake;%CMAKE_VERSION%" >nul
+
+      - name: Restore original game executable
+        shell: bash
+        env:
+          XBE_KEY: ${{ secrets.XBE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$XBE_KEY" || { echo "::error::Repository secret XBE_KEY is missing"; exit 1; }
+          test -s ci/default.xbe.enc || { echo "::error::ci/default.xbe.enc is missing or empty"; exit 1; }
+          mkdir -p assets
+          key="$RUNNER_TEMP/xbe.key"
+          printf '%s' "$XBE_KEY" | tr -d '\r\n' > "$key"
+          openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 200000 -in ci/default.xbe.enc -out assets/default.xbe -pass "file:$key"
+          rm -f "$key"
+          actual="$(sha1sum assets/default.xbe | cut -d' ' -f1)"
+          echo "Original default.xbe SHA-1: $actual"
+          test "$actual" = "f636a16af04171089f879a4bed646e185c734233" || { echo "::error::Original Xbox image hash mismatch"; exit 1; }
+
+      - name: Build original base APK
+        shell: cmd
+        run: call build.bat
+
+      - name: Verify and name APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="app/build/outputs/apk/release/app-release.apk"
+          test -s "$src" || { echo "::error::Base APK was not produced"; exit 1; }
+          cp "$src" RanggaCasper-Original-Base.apk
+          sha256sum RanggaCasper-Original-Base.apk | tee SHA256SUMS.txt
+          ls -lh RanggaCasper-Original-Base.apk
+
+      - name: Upload original base APK
+        uses: actions/upload-artifact@v5
+        with:
+          name: RanggaCasper-Original-Base
+          path: |
+            RanggaCasper-Original-Base.apk
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
