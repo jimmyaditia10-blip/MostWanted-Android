@@ -424,6 +424,30 @@ bool Racing() { return mem::IsCommitted(kGameFlowState) && kernel::R32(kGameFlow
 
 }  // namespace game
 
+// XBE script registration names this function GetSimableSpeedKmh (0x1879C0).
+// It accepts a Simable pointer, calls the vehicle/physics vtable accessors, and
+// returns km/h in x87 ST0. The SimableManager at 0x48FC50 stores 0x1A0-byte
+// entries from +0x20; slot 0 is the single-player local Simable.
+X86_EXTERN_FUNC(__imp__sub_001879C0);
+X86_FUNC(sub_001879C0) {
+    const uint32_t simable = kernel::R32(ctx.esp + 4);
+    __imp__sub_001879C0(ctx, base);
+
+    if (!game::Racing()) {
+        game::lightning_aura::PublishMeasuredSpeed(0.0f);
+        return;
+    }
+    constexpr uint32_t kSimableManagerGlobal = 0x0048FC50;
+    if (!mem::IsCommitted(kSimableManagerGlobal)) return;
+    const uint32_t manager = kernel::R32(kSimableManagerGlobal);
+    if (!manager || !mem::IsCommitted(manager + 0x1A20)) return;
+    const uint32_t count = kernel::R32(manager + 0x1A20);
+    if (!count || count > 16 || simable != manager + 0x20) return;
+
+    const double speed_kmh = ctx.st[ctx.top & 7u];
+    game::lightning_aura::PublishMeasuredSpeed(static_cast<float>(speed_kmh));
+}
+
 // 0xC5900 resolves the particle resource ID passed by 0xCE8B0. The XBE's
 // CARFX_NOS_BLOWOFF name table entry resolves into handle slot 0x469A44.
 X86_EXTERN_FUNC(__imp__sub_000C5900);
