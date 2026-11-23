@@ -35,6 +35,8 @@ TARGETS = {
     "EmitterSlotPoolGlobal": 0x00480B50,
     "EmitterGroupSlotPoolGlobal": 0x00480B54,
     "CarFxNosBlowoffHandle": 0x00469A44,
+    "GetSimableSpeedKmh": 0x003DCD88,
+    "SpeedKmh": 0x003DFA44,
 }
 
 def main():
