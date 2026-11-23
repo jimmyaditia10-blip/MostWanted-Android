@@ -1,0 +1,78 @@
+name: XBE NOS Render Audit
+
+on:
+  push:
+    branches:
+      - feature/xbe-nos-render-audit
+    paths:
+      - .github/workflows/xbe-nos-render-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feature/xbe-nos-render-audit
+      - name: Decrypt and verify repository XBE
+        shell: bash
+        env:
+          XBE_KEY: ${{ secrets.XBE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$XBE_KEY"
+          key="$RUNNER_TEMP/xbe.key"
+          printf '%s' "$XBE_KEY" | tr -d '\r\n' > "$key"
+          openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 200000 -in ci/default.xbe.enc -out "$RUNNER_TEMP/default.xbe" -pass "file:$key"
+          rm -f "$key"
+          echo "f636a16af04171089f879a4bed646e185c734233  $RUNNER_TEMP/default.xbe" | sha1sum --check -
+          echo "XBE_PATH=$RUNNER_TEMP/default.xbe" >> "$GITHUB_ENV"
+      - name: Extract XBE metadata and NOS-related references
+        shell: pwsh
+        run: |
+          @'
+          import re, struct, pathlib, hashlib
+          p = pathlib.Path(r"${{ runner.temp }}\\default.xbe")
+          b = p.read_bytes()
+          out = []
+          out.append(f"File size: {len(b)}")
+          out.append(f"SHA1: {hashlib.sha1(b).hexdigest()}")
+          out.append(f"Magic: {b[:4]!r}")
+          if b[:4] == b"XBEH" and len(b) >= 0x178:
+              base = struct.unpack_from("<I", b, 0x104)[0]
+              entry = struct.unpack_from("<I", b, 0x128)[0]
+              nsec = struct.unpack_from("<I", b, 0x11c)[0]
+              secptr = struct.unpack_from("<I", b, 0x120)[0]
+              out += [f"Image base: 0x{base:08X}", f"Entry point: 0x{entry:08X}", f"Sections: {nsec}", f"Section headers file offset: 0x{secptr:08X}"]
+              for i in range(min(nsec, 128)):
+                  off = secptr + i*56
+                  if off+56 > len(b): break
+                  flags, vsize, vaddr, rsize, roff = struct.unpack_from("<IIIII", b, off)
+                  nameptr = struct.unpack_from("<I", b, off+20)[0]
+                  out.append(f"SECTION {i}: VA=0x{vaddr:08X} VSZ=0x{vsize:X} RAW=0x{roff:X}+0x{rsize:X} FLAGS=0x{flags:X}")
+          pats = re.compile(rb"(?i)(nos|nitro|boost|trail|particle|thunder|spark|exhaust|velocity|afterburn|effect|smoke|d3ddevice|settexture|drawprimitive)")
+          found = 0
+          for m in re.finditer(rb"[ -~]{4,}", b):
+              s = m.group(0)
+              if pats.search(s):
+                  out.append(f"ASCII 0x{m.start():08X}: {s[:240].decode('ascii','replace')}")
+                  found += 1
+          for m in re.finditer(rb"(?:[\x20-\x7e]\x00){4,}", b):
+              s = m.group(0)[::2]
+              if pats.search(s):
+                  out.append(f"UTF16 0x{m.start():08X}: {s[:240].decode('ascii','replace')}")
+                  found += 1
+          out.append(f"Matching strings: {found}")
+          pathlib.Path("xbe-nos-audit.txt").write_text("\n".join(out), encoding="utf-8")
+          print("\n".join(out[:80]))
+          '@ | Set-Content -Encoding utf8 audit.py
+          python audit.py
+      - uses: actions/upload-artifact@v5
+        with:
+          name: xbe-nos-render-audit
+          path: xbe-nos-audit.txt
+          if-no-files-found: error
+          retention-days: 14
