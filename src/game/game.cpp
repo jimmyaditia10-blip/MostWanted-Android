@@ -440,13 +440,21 @@ X86_FUNC(sub_000CE8B0) {
              kernel::R32(ctx.esp + 16), kernel::R32(ctx.esp + 20), kernel::R32(ctx.esp + 24),
              manager, kernel::R32(manager), kernel::R32(manager + 4), kernel::R32(manager + 8),
              kernel::R32(manager + 12));
+        game::lightning_aura::WriteDiagnosticLog("lightning-xbe-particle: enter call=%u ecx=%08X eax=%08X ebx=%08X esi=%08X edi=%08X esp=%08X args=%08X,%08X,%08X,%08X,%08X,%08X manager=%08X words=%08X,%08X,%08X,%08X",
+             call, ctx.ecx, ctx.eax, ctx.ebx, ctx.esi, ctx.edi, ctx.esp,
+             kernel::R32(ctx.esp + 4), kernel::R32(ctx.esp + 8), kernel::R32(ctx.esp + 12),
+             kernel::R32(ctx.esp + 16), kernel::R32(ctx.esp + 20), kernel::R32(ctx.esp + 24),
+             manager, kernel::R32(manager), kernel::R32(manager + 4), kernel::R32(manager + 8),
+             kernel::R32(manager + 12));
     }
     const bool was_active = game::lightning_aura::NativeParticleDrawScopeActive();
     game::lightning_aura::SetNativeParticleDrawScope(true);
     __imp__sub_000CE8B0(ctx, base);
     game::lightning_aura::SetNativeParticleDrawScope(was_active);
-    if (report)
+    if (report) {
         LOGI("lightning-xbe-particle: leave call=%u eax=%08X ecx=%08X", call, ctx.eax, ctx.ecx);
+        game::lightning_aura::WriteDiagnosticLog("lightning-xbe-particle: leave call=%u eax=%08X ecx=%08X", call, ctx.eax, ctx.ecx);
+    }
 }
 
 // The drops on the screen in the rain (0x0CC530, a view's "Rain Drop" pass): 20 of them, each a copy of the frame into
