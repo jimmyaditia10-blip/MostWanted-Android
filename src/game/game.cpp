@@ -19,6 +19,7 @@
 #include "common/music.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#include "game/lightning_aura.h"
 
 namespace game {
 
@@ -422,6 +423,31 @@ constexpr uint32_t kGameFlowRacing = 6;
 bool Racing() { return mem::IsCommitted(kGameFlowState) && kernel::R32(kGameFlowState) == kGameFlowRacing; }
 
 }  // namespace game
+
+// The game's particle manager (0x482CC0) is rendered by 0x000CE8B0. Trace this
+// real game-side pass and bracket its nested D3D calls so the adapter can identify
+// the exact vertex formats, shaders, buffers and transforms used by native particles.
+X86_EXTERN_FUNC(__imp__sub_000CE8B0);
+X86_FUNC(sub_000CE8B0) {
+    static uint32_t calls = 0;
+    const uint32_t call = calls++;
+    const bool report = call < 256;
+    if (report) {
+        const uint32_t manager = 0x00482CC0;
+        LOGI("lightning-xbe-particle: enter call=%u ecx=%08X eax=%08X ebx=%08X esi=%08X edi=%08X esp=%08X args=%08X,%08X,%08X,%08X,%08X,%08X manager=%08X words=%08X,%08X,%08X,%08X",
+             call, ctx.ecx, ctx.eax, ctx.ebx, ctx.esi, ctx.edi, ctx.esp,
+             kernel::R32(ctx.esp + 4), kernel::R32(ctx.esp + 8), kernel::R32(ctx.esp + 12),
+             kernel::R32(ctx.esp + 16), kernel::R32(ctx.esp + 20), kernel::R32(ctx.esp + 24),
+             manager, kernel::R32(manager), kernel::R32(manager + 4), kernel::R32(manager + 8),
+             kernel::R32(manager + 12));
+    }
+    const bool was_active = game::lightning_aura::NativeParticleDrawScopeActive();
+    game::lightning_aura::SetNativeParticleDrawScope(true);
+    __imp__sub_000CE8B0(ctx, base);
+    game::lightning_aura::SetNativeParticleDrawScope(was_active);
+    if (report)
+        LOGI("lightning-xbe-particle: leave call=%u eax=%08X ecx=%08X", call, ctx.eax, ctx.ecx);
+}
 
 // The drops on the screen in the rain (0x0CC530, a view's "Rain Drop" pass): 20 of them, each a copy of the frame into
 // a 32x32 target and a draw back, 40 renderings a frame. SCREEN RAINDROPS off returns at once (cdecl, the view)
