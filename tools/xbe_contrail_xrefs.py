@@ -167,6 +167,9 @@ def main():
         0x00174350: "LocalPlayer method",
         0x00174510: "LocalPlayer method",
         0x00175310: "LocalPlayer indexed helper",
+        0x00051170: "XBE resource-name resolver",
+        0x00055100: "XBE fixed-slot pool allocator",
+        0x000C3DC0: "native emitter iterator",
     }
     for va, label in focus.items():
         off = TEXT_RAW + va - TEXT_VA
