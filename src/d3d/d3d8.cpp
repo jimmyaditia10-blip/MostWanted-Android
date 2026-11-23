@@ -1475,6 +1475,8 @@ bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_cou
                                       uint32_t prim, game::lightning_aura::ParticleLine* output,
                                       std::size_t capacity, std::size_t& captured) {
     captured = 0;
+    if (!game::lightning_aura::NativeParticleDrawScopeActive() ||
+        !game::lightning_aura::NativeParticleEffectMatched()) return false;
     const auto stream = g_state.streams[0];
     if (!indices || !stream.vb || !stream.stride || index_count < 2 || index_count > 256 ||
         (index_count & 1u)) return false;
@@ -1723,6 +1725,8 @@ bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t cou
                                std::size_t capacity, std::size_t& captured) {
     using game::lightning_aura::ParticleLine;
     captured = 0;
+    if (!game::lightning_aura::NativeParticleDrawScopeActive() ||
+        !game::lightning_aura::NativeParticleEffectMatched()) return false;
     const uint32_t fvf = g_state.vs_handle;
     if (!vertices || (prim != 2 && prim != 5) || (fvf & 1u) || !(fvf & 0x2u) ||
         !(fvf & 0x40u) || (fvf & 0x38u) || g_state.ps ||
