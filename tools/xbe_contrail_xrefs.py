@@ -105,6 +105,16 @@ def main():
                 print(f"    code context near VA {va:#010x}:")
                 for ins in Cs(CS_ARCH_X86, CS_MODE_32).disasm(window, start_va):
                     print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
+                # Also decode from the nearest common x86 frame prologue, if present.
+                prologues = [p for p in range(max(TEXT_RAW, off - 0x300), off)
+                             if data[p:p+3] == b"\\x55\\x8B\\xEC"]
+                if prologues:
+                    p = prologues[-1]
+                    print(f"    nearest frame function from VA {TEXT_VA + p - TEXT_RAW:#010x}:")
+                    for ins in Cs(CS_ARCH_X86, CS_MODE_32).disasm(
+                            data[p:min(TEXT_RAW + TEXT_SIZE, p + 0x180)],
+                            TEXT_VA + p - TEXT_RAW):
+                        print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
 
 if __name__ == "__main__":
     main()
