@@ -8,6 +8,11 @@ float IntensityForSpeed(float speed_kmh) noexcept;
 void PublishMeasuredSpeed(float speed_kmh) noexcept;
 float MeasuredSpeedKmh() noexcept;
 
+// True only while the Xbox particle-system draw routine is issuing native D3D calls.
+// Used for bounded, observational renderer tracing; it does not alter particle state.
+void SetNativeParticleDrawScope(bool active) noexcept;
+bool NativeParticleDrawScopeActive() noexcept;
+
 struct Vertex {
     float x, y, z;
     float intensity;
