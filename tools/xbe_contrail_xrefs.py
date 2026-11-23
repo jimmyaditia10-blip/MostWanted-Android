@@ -34,6 +34,7 @@ TARGETS = {
     "ParticleSlotPoolGlobal": 0x00480B4C,
     "EmitterSlotPoolGlobal": 0x00480B50,
     "EmitterGroupSlotPoolGlobal": 0x00480B54,
+    "CarFxNosBlowoffHandle": 0x00469A44,
 }
 
 def main():
