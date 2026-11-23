@@ -98,7 +98,7 @@ def main():
  # Disassemble every section marked executable, not just game .text.
  all_instructions=[]
  for s in sections:
-  if not (s["flags"]&4) or not s["raw_size"]: continue
+  if s["name"] not in (".text","D3D","XGRPH") or not s["raw_size"]: continue
   md=Cs(CS_ARCH_X86,CS_MODE_32); md.detail=True
   seq=list(md.disasm(b[s["raw"]:s["raw"]+s["raw_size"]],s["va"]))
   all_instructions.extend((s["name"],x) for x in seq)
@@ -124,6 +124,17 @@ def main():
   if x.mnemonic=="call" and x.operands and x.operands[0].type==x86_const.X86_OP_IMM:
    dest=x.operands[0].imm&0xFFFFFFFF
    if dest in KNOWN: add(f"  [{sec}] {x.address:08X} -> {dest:08X} {KNOWN[dest]}")
+ add("\nTARGETED FUNCTION DISASSEMBLY (first 64 instructions from each known entry):")
+ for va,label in sorted(KNOWN.items()):
+  secname=".text" if va<0x003714E0 else "D3D"
+  seq=[x for sec,x in all_instructions if sec==secname]
+  at=next((i for i,x in enumerate(seq) if x.address==va),None)
+  if at is None:
+   add(f"\n  {label} @ 0x{va:08X}: entry address not decoded in {secname}")
+   continue
+  add(f"\n  {label} @ 0x{va:08X}")
+  for x in seq[at:at+64]:
+   add(f"    {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
  add("\nTOP DIRECT CALL TARGETS IN GAME .text (frequency only; not symbol names):")
  textsec=next((s for s in sections if s["name"]==".text"),None)
  seq=[x for sec,x in all_instructions if sec==".text"]
