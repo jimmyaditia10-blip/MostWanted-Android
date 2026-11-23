@@ -65,3 +65,13 @@ A temporary debug overlay is now drawn by the D3D8 native-streak replacement pat
 - Test with NOS active and inspect whether the two crosses sit on the rear brake lamps. If they do but the gold ribbon appears to start behind them, compare the logged `start -> end` endpoints and frame values. If the crosses themselves miss the lamps, the source point/transform mapping is wrong and must be corrected before changing shader geometry.
 
 This is a temporary diagnostic build. Remove the cross draw and its log after the marker transform has been verified.
+
+
+## Static XBE source mapping (default.xbe SHA-1 f636a16af04171089f879a4bed646e185c734233)
+
+- `0x000CE8B0` is the native particle-manager draw routine.
+- Inside that routine, the particle resource ID is read from `[[[esi + 0x7C] + 8] + 0x98]` and resolved by `0x000C5900`.
+- The XBE name table starts at `0x004699D8`. Its `CARFX_NOS_BLOWOFF` string pointer is at `0x00469A40`; the resolved runtime handle is stored at `0x00469A44`.
+- The D3D capture filter now accepts white native geometry only while the current particle resource ID matches that resolved NOS handle. It preserves the original vertex coordinates and the native draw transform.
+
+The resource identity is established statically from the XBE. Build verification remains pending, and the speed publisher still needs a verified Xbox source before the 150–250 km/h gate can activate.
