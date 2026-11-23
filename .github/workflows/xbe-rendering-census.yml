@@ -1,0 +1,31 @@
+name: XBE Rendering Census
+
+on:
+  push:
+    branches: ["feature/lightning-particle-mask-v4"]
+    paths:
+      - "default.xbe"
+      - "tools/xbe_rendering_census.py"
+      - ".github/workflows/xbe-rendering-census.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install disassembler
+        run: python -m pip install --disable-pip-version-check capstone
+      - name: Analyze uploaded Xbox executable
+        run: python tools/xbe_rendering_census.py
+      - uses: actions/upload-artifact@v5
+        with:
+          name: xbe-rendering-census
+          path: xbe-rendering-report.txt
+          if-no-files-found: error
+          retention-days: 7
