@@ -126,5 +126,29 @@ def main():
                             data[p:p + 0x220], 0x242E87):
                         print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
 
+
+    print("\\n=== FOCUSED PARTICLE / EMITTER FUNCTION DISASSEMBLY ===")
+    focus = {
+        0x000CE8B0: "native particle-system draw",
+        0x000C5900: "particle helper",
+        0x000C2C40: "particle helper",
+        0x000C1F50: "particle helper",
+        0x000C0070: "particle helper",
+        0x00209680: "particle helper",
+        0x00209610: "particle helper",
+        0x00209650: "particle helper",
+        0x0020A770: "particle helper",
+        0x00242D20: "car emitter position setter",
+        0x0024C8D0: "car emitter position collector",
+    }
+    for va, label in focus.items():
+        off = TEXT_RAW + va - TEXT_VA
+        if off < TEXT_RAW or off >= TEXT_RAW + TEXT_SIZE:
+            continue
+        print(f"\\n--- {label} @ {va:#010x} ---")
+        for ins in Cs(CS_ARCH_X86, CS_MODE_32).disasm(
+                data[off:min(TEXT_RAW + TEXT_SIZE, off + 0x240)], va):
+            print(f"  {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
+
 if __name__ == "__main__":
     main()
