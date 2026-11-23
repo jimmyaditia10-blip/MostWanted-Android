@@ -75,5 +75,23 @@ def main():
                 print(name, "xref", hex(instructions[idx].address),
                       "calls", ", ".join(f"{a:#x}->{t:#x}" for a, t in calls))
 
+
+    # Search every section, including .rdata/.data, for literal VA pointers.
+    # The game often reaches named pools through pointer tables rather than code immediates.
+    print("\\n=== RAW IMAGE POINTER REFERENCES (all sections) ===")
+    for name, va in TARGETS.items():
+        needle = struct.pack("<I", va)
+        hits = []
+        start = 0
+        while True:
+            off = data.find(needle, start)
+            if off < 0:
+                break
+            hits.append(off)
+            start = off + 1
+        print(f"{name} VA={va:#010x}: {len(hits)} raw references")
+        for off in hits[:80]:
+            print(f"  file+0x{off:06X}")
+
 if __name__ == "__main__":
     main()
