@@ -32,7 +32,7 @@ def is_base_entry_replaced(name: str) -> bool:
     return (
         name.startswith(("res/", "lib/"))
         or name == "resources.arsc"
-        or bool(re.fullmatch(r"classes\\d*\\.dex", name))
+        or bool(re.fullmatch(r"classes\d*\.dex", name))
         or name == "AndroidManifest.xml"
     )
 
@@ -50,7 +50,7 @@ def main() -> int:
         missing = sorted(required - source_set)
         if missing:
             raise SystemExit("Pustaka payload incomplete: " + ", ".join(missing))
-        dex_names = sorted(n for n in source_set if re.fullmatch(r"classes\\d*\\.dex", n))
+        dex_names = sorted(n for n in source_set if re.fullmatch(r"classes\d*\.dex", n))
         native_names = sorted(n for n in source_set if n.startswith("lib/") and n.endswith(".so"))
         if not dex_names or not native_names:
             raise SystemExit("Pustaka DEX or native library set is empty")
