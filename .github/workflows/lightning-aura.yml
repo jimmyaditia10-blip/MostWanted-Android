@@ -51,7 +51,7 @@ jobs:
 
       - name: Install Android SDK packages
         shell: cmd
-        run: call "%ANDROID_HOME%\\cmdline-tools\\latest\\bin\\sdkmanager.bat" --install "platforms;android-34" "ndk;%NDK_VERSION%" "cmake;%CMAKE_VERSION%" >nul
+        run: call "%ANDROID_HOME%\cmdline-tools\latest\bin\sdkmanager.bat" --install "platforms;android-34" "ndk;%NDK_VERSION%" "cmake;%CMAKE_VERSION%" >nul
 
       - name: Restore and verify default.xbe
         shell: bash
@@ -63,7 +63,7 @@ jobs:
           test -f ci/default.xbe.enc || { echo "::error::ci/default.xbe.enc is missing"; exit 1; }
           mkdir -p assets
           key="$RUNNER_TEMP/xbe.key"
-          printf '%s' "$XBE_KEY" | tr -d '\\r\\n' > "$key"
+          printf '%s' "$XBE_KEY" | tr -d '\r\n' > "$key"
           openssl enc -d -aes-256-cbc -md sha256 -pbkdf2 -iter 200000 -in ci/default.xbe.enc -out assets/default.xbe -pass "file:$key"
           rm -f "$key"
           actual="$(sha1sum assets/default.xbe | cut -d' ' -f1)"
