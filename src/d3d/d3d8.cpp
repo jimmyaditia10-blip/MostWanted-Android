@@ -1793,6 +1793,51 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
     submit(0x00FF7A18u, 0.34f);
     submit(0x00FFC02Au, 0.68f);
     submit(0x00FFFFFFu, 0.94f);
+
+    // TEMP DEBUG: put two unmistakable crosses on the live native streak roots.
+    // The left/right roots are selected from this exact draw's newest ParticleLine
+    // samples, then drawn with the same world matrix as the streaks. This makes the
+    // test isolate marker placement from ribbon endpoint placement: if a cross is
+    // on a tail lamp but the gold ribbon appears behind it, inspect endpoint age/
+    // generation; if the cross itself is displaced, inspect the marker transform.
+    if (source_lines.size() >= 2) {
+        std::size_t left = source_lines.size(), right = source_lines.size();
+        for (std::size_t i = 0; i < source_lines.size(); ++i) {
+            const auto& p = source_lines[i];
+            if (!std::isfinite(p.start_x) || !std::isfinite(p.start_y) ||
+                !std::isfinite(p.start_z) || p.alpha <= 0.001f) continue;
+            if (left == source_lines.size() || p.start_x < source_lines[left].start_x) left = i;
+            if (right == source_lines.size() || p.start_x > source_lines[right].start_x) right = i;
+        }
+        if (left != source_lines.size() && right != source_lines.size() && left != right) {
+            constexpr float r = 0.085f;
+            std::array<LightningLineVertex, 12> dots{};
+            auto cross = [&](std::size_t at, const ParticleLine& p, uint32_t color) {
+                const float x = p.start_x, y = p.start_y, z = p.start_z;
+                dots[at + 0] = {x - r, y, z, color}; dots[at + 1] = {x + r, y, z, color};
+                dots[at + 2] = {x, y - r, z, color}; dots[at + 3] = {x, y + r, z, color};
+                dots[at + 4] = {x, y, z - r, color}; dots[at + 5] = {x, y, z + r, color};
+            };
+            cross(0, source_lines[left], 0xFFFF35D3u);   // magenta = local -X root
+            cross(6, source_lines[right], 0xFF27E8FFu); // cyan = local +X root
+            gpu::State debug = aura;
+            debug.rs[gpu::kRsZEnable] = 0; // keep markers visible over the bodywork
+            debug.simple[gpu::kMZWriteEnable >> 2] = 0;
+            debug.streams[0] = {UpVertices(dots.data(), uint32_t(sizeof(dots))),
+                                sizeof(LightningLineVertex)};
+            g_backend->Draw(debug, 2, 0, uint32_t(dots.size()), nullptr);
+
+            static uint32_t marker_reports = 0;
+            if (marker_reports++ < 160) {
+                const auto& l = source_lines[left];
+                const auto& rr = source_lines[right];
+                LOGI("lightning-marker-debug: frame=%u speed=%.1f left[%u]=(%.5f,%.5f,%.5f)->(%.5f,%.5f,%.5f) right[%u]=(%.5f,%.5f,%.5f)->(%.5f,%.5f,%.5f)",
+                     g_presents, speed, uint32_t(left), l.start_x, l.start_y, l.start_z,
+                     l.end_x, l.end_y, l.end_z, uint32_t(right),
+                     rr.start_x, rr.start_y, rr.start_z, rr.end_x, rr.end_y, rr.end_z);
+            }
+        }
+    }
     return true;
 }
 
