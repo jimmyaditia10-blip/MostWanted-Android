@@ -41,3 +41,13 @@ No Android build or in-game capture has been run for this adapter commit. Source
 ## Reference wind-trail visual pass
 
 The captured native streak mask now emits three tapered filaments per accepted source line. The center filament remains anchored to the exact native start/end coordinates; two outer filaments fan out only through the interior and converge at both endpoints. This creates a wider, jagged lightning ribbon without changing the native draw transform or moving the vehicle-relative source positions. The D3D8 replacement draw stacks additive orange, gold, and white-hot color passes. The speed gate remains 150 km/h with full intensity at 250 km/h and a clamped plateau through 500 km/h. Runtime appearance still requires an Android build and in-game capture; the source change alone does not prove the target visual has been reached.
+
+
+## Live rear-lamp geometry probe (Build #120 diagnostic follow-up)
+
+The indexed draw hook now emits bounded `lightning-lamp-probe` records without changing rendering:
+- draw metadata: primitive index count, stream stride, vertex declaration/FVF, pixel-shader handle, first two texture handles, and current world translation;
+- up to 12 sampled indexed vertices per draw, including raw local XYZ and packed diffuse ARGB;
+- the probe is observational only. It does not guess left/right lamp anchors, alter the world matrix, suppress draws, or move the aura.
+
+For a runtime capture, enable the existing verbose/trace logging and record a short segment with NOS switched off, then the same view with NOS held on. Compare the draw records and local XYZ/color samples to isolate the two rear-lamp vertices. Only after those two live vertices are identified should the marker dots and aura roots be attached to them. The probe is bounded to 4096 indexed draw calls per process.
