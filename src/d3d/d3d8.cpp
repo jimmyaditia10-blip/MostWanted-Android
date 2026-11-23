@@ -1554,8 +1554,17 @@ void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint3
          reports, path, prim, count, stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
          g_state.streams[0].vb, g_state.base_vertex, g_state.textures[0], g_state.textures[1],
          world[12], world[13], world[14], inputs.c_str());
+    game::lightning_aura::WriteDiagnosticLog("lightning-xbe-particle-draw: n=%u path=%s prim=%u count=%u stride=%u fvf=%08X ps=%08X vb=%08X baseVertex=%u tex0=%08X tex1=%08X worldT=(%.4f,%.4f,%.4f) inputs=%s",
+         reports, path, prim, count, stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
+         g_state.streams[0].vb, g_state.base_vertex, g_state.textures[0], g_state.textures[1],
+         world[12], world[13], world[14], inputs.c_str());
     if (indices) {
         LOGI("lightning-xbe-particle-draw: indices=%u,%u,%u,%u,%u,%u,%u,%u",
+             indices[0], count > 1 ? indices[1] : 0, count > 2 ? indices[2] : 0,
+             count > 3 ? indices[3] : 0, count > 4 ? indices[4] : 0,
+             count > 5 ? indices[5] : 0, count > 6 ? indices[6] : 0,
+             count > 7 ? indices[7] : 0);
+        game::lightning_aura::WriteDiagnosticLog("lightning-xbe-particle-draw: indices=%u,%u,%u,%u,%u,%u,%u,%u",
              indices[0], count > 1 ? indices[1] : 0, count > 2 ? indices[2] : 0,
              count > 3 ? indices[3] : 0, count > 4 ? indices[4] : 0,
              count > 5 ? indices[5] : 0, count > 6 ? indices[6] : 0,
@@ -1569,6 +1578,8 @@ void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint3
             std::memcpy(xyz, bytes + std::size_t(v) * stride, sizeof(xyz));
             if (stride >= 16) std::memcpy(&word3, bytes + std::size_t(v) * stride + 12, 4);
             LOGI("lightning-xbe-particle-draw: v%u=(%.5f,%.5f,%.5f) word3=%08X",
+                 v, xyz[0], xyz[1], xyz[2], word3);
+            game::lightning_aura::WriteDiagnosticLog("lightning-xbe-particle-draw: v%u=(%.5f,%.5f,%.5f) word3=%08X",
                  v, xyz[0], xyz[1], xyz[2], word3);
         }
     }
