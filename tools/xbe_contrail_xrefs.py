@@ -26,6 +26,10 @@ TARGETS = {
     "EmitterSlotPool": 0x003D32C8,
     "EmitterGroupSlotPool": 0x003D32D8,
     "ParticleSlotPool": 0x003D32B4,
+    "CarEmitterPositionSlotPool": 0x003E9BD0,
+    "CARFX_NOS_BLOWOFF": 0x003E97A0,
+    "CARSFX_WindNoise": 0x003D13EC,
+    "CARSFX_WindWeather": 0x003D13D8,
 }
 
 def main():
