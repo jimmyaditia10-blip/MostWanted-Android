@@ -20,6 +20,7 @@ constexpr float kLightningForwardOffset = 0.65f;
 constexpr float kMinLineLengthSq = 0.0004f;
 std::atomic<float> g_measured_speed_kmh{0.0f};
 std::atomic<bool> g_native_particle_draw_scope{false};
+std::atomic<bool> g_native_particle_effect_match{false};
 std::mutex g_streak_mutex;
 ParticleLine g_native_streaks[256]{};
 std::size_t g_native_streak_count = 0;
@@ -65,6 +66,12 @@ void SetNativeParticleDrawScope(bool active) noexcept {
 }
 bool NativeParticleDrawScopeActive() noexcept {
     return g_native_particle_draw_scope.load(std::memory_order_acquire);
+}
+void SetNativeParticleEffectMatch(bool matched) noexcept {
+    g_native_particle_effect_match.store(matched, std::memory_order_release);
+}
+bool NativeParticleEffectMatched() noexcept {
+    return g_native_particle_effect_match.load(std::memory_order_acquire);
 }
 float IntensityForSpeed(float speed_kmh) noexcept {
     // Ramp from zero at 150 km/h to full intensity at 250 km/h;
