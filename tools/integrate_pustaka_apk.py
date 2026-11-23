@@ -30,12 +30,10 @@ def sha256(data: bytes) -> str:
 
 def is_base_entry_replaced(name: str) -> bool:
     return (
-        name.startswith(("res/", "lib/"))
-        or name == "resources.arsc"
+        name == "resources.arsc"
         or bool(re.fullmatch(r"classes\d*\.dex", name))
         or name == "AndroidManifest.xml"
     )
-
 def main() -> int:
     if len(sys.argv) != 4:
         raise SystemExit("usage: integrate_pustaka_apk.py BASE.apk PUSTAKA.apk OUTPUT.apk")
