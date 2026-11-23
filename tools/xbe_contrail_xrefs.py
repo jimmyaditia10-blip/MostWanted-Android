@@ -92,6 +92,15 @@ def main():
         print(f"{name} VA={va:#010x}: {len(hits)} raw references")
         for off in hits[:80]:
             print(f"  file+0x{off:06X}")
+            if 0x1000 <= off < 0x3614D4:
+                va = TEXT_VA + off - TEXT_RAW
+                lo = max(TEXT_RAW, off - 24)
+                hi = min(TEXT_RAW + TEXT_SIZE, off + 40)
+                window = data[lo:hi]
+                start_va = TEXT_VA + lo - TEXT_RAW
+                print(f"    code context near VA {va:#010x}:")
+                for ins in Cs(CS_ARCH_X86, CS_MODE_32).disasm(window, start_va):
+                    print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
 
 if __name__ == "__main__":
     main()
