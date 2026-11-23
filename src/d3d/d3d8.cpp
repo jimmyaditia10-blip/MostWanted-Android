@@ -1528,12 +1528,54 @@ bool MeasureIndexedRawXYZ(const uint8_t* indices, uint32_t index_count,
     return valid >= 3;
 }
 
+// Diagnostic probe for identifying the two rear lamp vertices from live Xbox draw data.
+// It is intentionally observational: no guessed anchors, transform edits, or render-state changes.
+void LogIndexedLampProbe(const uint8_t* indices, uint32_t index_count) {
+    static uint32_t reports = 0;
+    if (!indices || reports++ >= 4096) return;
+    const auto stream = g_state.streams[0];
+    if (!stream.vb || stream.stride < 16 || !index_count || index_count > 200000) return;
+    const uint32_t physical = R32(stream.vb + kResData);
+    if (!physical) return;
+    const uint32_t base = mem::VirtualFromPhysical(physical);
+    if (!base || !mem::IsCommitted(base)) return;
+    const auto* ix = reinterpret_cast<const uint16_t*>(indices);
+    const uint32_t samples = std::min<uint32_t>(12, index_count);
+    const uint32_t step = std::max<uint32_t>(1, index_count / samples);
+    const auto& world = g_state.transforms[256];
+    LOGI("lightning-lamp-probe: primDraw indices=%u stride=%u fvf=%08X ps=%08X "
+         "tex=(%08X,%08X) worldT=(%.4f,%.4f,%.4f) samples=%u",
+         index_count, stream.stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
+         g_state.textures[0], g_state.textures[1],
+         world[12], world[13], world[14], samples);
+    uint32_t emitted = 0;
+    for (uint32_t i = 0; i < index_count && emitted < samples; i += step) {
+        const uint64_t vertex = uint64_t(ix[i]) + g_state.base_vertex;
+        const uint64_t address = uint64_t(base) + vertex * stream.stride;
+        if (address > 0xFFFFFFFFull || !mem::IsCommitted(uint32_t(address)) ||
+            !mem::IsCommitted(uint32_t(address + 15))) continue;
+        float xyz[3]{};
+        uint32_t diffuse = 0;
+        std::memcpy(xyz, HostPtr(uint32_t(address)), sizeof(xyz));
+        std::memcpy(&diffuse, HostPtr(uint32_t(address + 12)), sizeof(diffuse));
+        if (!std::isfinite(xyz[0]) || !std::isfinite(xyz[1]) || !std::isfinite(xyz[2]) ||
+            std::fabs(xyz[0]) > 10000.0f || std::fabs(xyz[1]) > 10000.0f ||
+            std::fabs(xyz[2]) > 10000.0f) continue;
+        LOGI("lightning-lamp-probe: v=%u local=(%.5f,%.5f,%.5f) diffuse=%08X "
+             "argb=(%u,%u,%u,%u)", ix[i], xyz[0], xyz[1], xyz[2], diffuse,
+             (diffuse >> 24) & 255, (diffuse >> 16) & 255,
+             (diffuse >> 8) & 255, diffuse & 255);
+        ++emitted;
+    }
+}
+
 HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
     std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
     std::size_t native_streak_count = 0;
+    LogIndexedLampProbe(indices, a[1]);
     const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
         indices, a[1], a[0], native_streaks.data(), native_streaks.size(), native_streak_count);
     // Bounded body-geometry census: log sampled raw XYZ bounds together with each
