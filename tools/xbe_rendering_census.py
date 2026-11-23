@@ -142,6 +142,38 @@ def main():
   seq=list(md.disasm(b[chosen_off:chosen_off+0x300],chosen))
   add(f"\n  {label} requested=0x{va:08X} decoded=0x{chosen:08X} section={chosen_sec['name']}")
   for x in seq[:64]: add(f"    {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
+ add("\nCONTROL-FLOW CALL CENSUS FOR EACH GAME / D3D ENTRY:")
+ for start,label in sorted(KNOWN.items()):
+  sec=next((s for s in sections if s["name"] in (".text","D3D","XGRPH") and s["va"]<=start<s["va"]+s["raw_size"]),None)
+  if not sec: continue
+  todo=[start]; seen=set(); direct=Counter(); indirect=[]; decoded=0
+  md=Cs(CS_ARCH_X86,CS_MODE_32); md.detail=True
+  while todo and decoded<10000:
+   pc=todo.pop()
+   while sec["va"]<=pc<sec["va"]+sec["raw_size"] and pc not in seen and decoded<10000:
+    seen.add(pc); off=sec["raw"]+(pc-sec["va"])
+    one=next(md.disasm(b[off:off+15],pc,count=1),None)
+    if one is None: break
+    decoded+=1
+    if one.mnemonic=="call" and one.operands:
+     op=one.operands[0]
+     if op.type==x86_const.X86_OP_IMM: direct[op.imm&0xFFFFFFFF]+=1
+     else: indirect.append(f"{one.address:08X}: {one.mnemonic} {one.op_str}")
+    if one.mnemonic.startswith("ret") or one.mnemonic in ("int3","ud2"): break
+    if one.mnemonic=="jmp":
+     if one.operands and one.operands[0].type==x86_const.X86_OP_IMM:
+      dest=one.operands[0].imm&0xFFFFFFFF
+      if sec["va"]<=dest<sec["va"]+sec["raw_size"]: todo.append(dest)
+     break
+    if one.mnemonic.startswith("j") or one.mnemonic.startswith("loop"):
+     if one.operands and one.operands[0].type==x86_const.X86_OP_IMM:
+      dest=one.operands[0].imm&0xFFFFFFFF
+      if sec["va"]<=dest<sec["va"]+sec["raw_size"]: todo.append(dest)
+    pc+=one.size
+  add(f"\n  {label} @ 0x{start:08X}: reachable={decoded} direct_calls={sum(direct.values())} indirect_calls={len(indirect)}")
+  for dest,n in direct.most_common(45):
+   add(f"    call {n:3d}x -> 0x{dest:08X} {KNOWN.get(dest,'')}")
+  for item in indirect[:35]: add("    indirect "+item)
  add("\nTOP DIRECT CALL TARGETS IN GAME .text (frequency only; not symbol names):")
  textsec=next((s for s in sections if s["name"]==".text"),None)
  seq=[x for sec,x in all_instructions if sec==".text"]
