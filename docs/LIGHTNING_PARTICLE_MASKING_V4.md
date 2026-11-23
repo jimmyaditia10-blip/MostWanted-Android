@@ -51,3 +51,17 @@ The indexed draw hook now emits bounded `lightning-lamp-probe` records without c
 - the probe is observational only. It does not guess left/right lamp anchors, alter the world matrix, suppress draws, or move the aura.
 
 For a runtime capture, enable the existing verbose/trace logging and record a short segment with NOS switched off, then the same view with NOS held on. Compare the draw records and local XYZ/color samples to isolate the two rear-lamp vertices. Only after those two live vertices are identified should the marker dots and aura roots be attached to them. The probe is bounded to 4096 indexed draw calls per process.
+
+
+## Live two-point marker test
+
+A temporary debug overlay is now drawn by the D3D8 native-streak replacement path whenever the measured speed is at least 150 km/h and at least two current native streak lines are captured.
+
+- **Magenta cross**: start endpoint with the smallest local X in the current captured batch.
+- **Cyan cross**: start endpoint with the largest local X in the current captured batch.
+- Both crosses use the exact same world transform and render path as the native streak replacement; depth testing is disabled only for the crosses so they remain visible over the car body.
+- `lightning-marker-debug` log lines include the frame number and both selected start/end coordinates.
+- The marker points are selected from the current `DrawLightningParticleMask` input, not from the shared replay overlay cache. This avoids reading a previously published batch for this diagnostic.
+- Test with NOS active and inspect whether the two crosses sit on the rear brake lamps. If they do but the gold ribbon appears to start behind them, compare the logged `start -> end` endpoints and frame values. If the crosses themselves miss the lamps, the source point/transform mapping is wrong and must be corrected before changing shader geometry.
+
+This is a temporary diagnostic build. Remove the cross draw and its log after the marker transform has been verified.
