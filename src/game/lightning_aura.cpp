@@ -16,6 +16,7 @@ constexpr float kHalfWidth = 1.35f, kHalfLength = 2.25f, kHeight = 1.15f;
 constexpr float kLightningForwardOffset = 0.65f;
 constexpr float kMinLineLengthSq = 0.0004f;
 std::atomic<float> g_measured_speed_kmh{0.0f};
+std::atomic<bool> g_native_particle_draw_scope{false};
 std::mutex g_streak_mutex;
 ParticleLine g_native_streaks[256]{};
 std::size_t g_native_streak_count = 0;
@@ -41,6 +42,12 @@ void PublishMeasuredSpeed(float speed_kmh) noexcept {
                                 std::memory_order_relaxed);
 }
 float MeasuredSpeedKmh() noexcept { return g_measured_speed_kmh.load(std::memory_order_relaxed); }
+void SetNativeParticleDrawScope(bool active) noexcept {
+    g_native_particle_draw_scope.store(active, std::memory_order_release);
+}
+bool NativeParticleDrawScopeActive() noexcept {
+    return g_native_particle_draw_scope.load(std::memory_order_acquire);
+}
 float IntensityForSpeed(float speed_kmh) noexcept {
     // Ramp from zero at 150 km/h to full intensity at 250 km/h;
     // Clamp01 keeps that maximum unchanged through and beyond 500 km/h.
