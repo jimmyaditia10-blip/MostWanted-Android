@@ -162,6 +162,11 @@ def main():
         0x00183910: "simable helper",
         0x001863C0: "player simable lookup helper",
         0x00181900: "player manager helper",
+        0x00187A40: "SimableManager iteration",
+        0x00175150: "LocalPlayer property getter",
+        0x00174350: "LocalPlayer method",
+        0x00174510: "LocalPlayer method",
+        0x00175310: "LocalPlayer indexed helper",
     }
     for va, label in focus.items():
         off = TEXT_RAW + va - TEXT_VA
