@@ -1,6 +1,8 @@
 // Direct3D 8 (XDK 5849) entry points the title calls, implemented on the host renderer.
 // Resource creation, locking and the XG helpers stay recompiled: they only manage memory.
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -20,6 +22,7 @@
 #include "gpu/backend.h"
 #include "gpu/texture.h"
 #include "gpu/vertex.h"
+#include "game/lightning_aura.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
 #include "xdk/layout.h"
@@ -1456,12 +1459,163 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     return 0;
 }
 
+// Forward declarations share the anonymous namespace with the helper definitions below.
+namespace {
+bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t count,
+                               uint32_t stride, game::lightning_aura::ParticleLine* output,
+                               std::size_t capacity, std::size_t& captured);
+bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, std::size_t line_count);
+}  // namespace
+
+bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_count,
+                                      uint32_t prim, game::lightning_aura::ParticleLine* output,
+                                      std::size_t capacity, std::size_t& captured) {
+    captured = 0;
+    const auto stream = g_state.streams[0];
+    if (!indices || !stream.vb || !stream.stride || index_count < 2 || index_count > 256 ||
+        (index_count & 1u)) return false;
+    const uint32_t physical = R32(stream.vb + kResData);
+    if (!physical) return false;
+    const uint32_t base = mem::VirtualFromPhysical(physical);
+    if (!base || !mem::IsCommitted(base)) return false;
+    std::vector<uint8_t> gathered(std::size_t(index_count) * stream.stride);
+    const auto* ix = reinterpret_cast<const uint16_t*>(indices);
+    for (uint32_t i = 0; i < index_count; ++i) {
+        const uint64_t vertex = uint64_t(ix[i]) + g_state.base_vertex;
+        const uint64_t address = uint64_t(base) + vertex * stream.stride;
+        if (address > 0xFFFFFFFFull || !mem::IsCommitted(uint32_t(address)) ||
+            !mem::IsCommitted(uint32_t(address + stream.stride - 1))) return false;
+        std::memcpy(gathered.data() + std::size_t(i) * stream.stride,
+                    HostPtr(uint32_t(address)), stream.stride);
+    }
+    return CaptureNativeWhiteStreaks(prim, gathered.data(), index_count, stream.stride,
+                                     output, capacity, captured);
+}
+
+// Read a bounded sample of indexed stream-0 XYZ triples without changing the draw.
+// This is diagnostic only: it lets us identify the player-body mesh's local-space bounds.
+bool MeasureIndexedRawXYZ(const uint8_t* indices, uint32_t index_count,
+                           float& min_x, float& min_y, float& min_z,
+                           float& max_x, float& max_y, float& max_z,
+                           uint32_t& valid) {
+    valid = 0;
+    const auto stream = g_state.streams[0];
+    if (!indices || !stream.vb || stream.stride < 12 || !index_count ||
+        index_count > 200000) return false;
+    const uint32_t physical = R32(stream.vb + kResData);
+    if (!physical) return false;
+    const uint32_t base = mem::VirtualFromPhysical(physical);
+    if (!base || !mem::IsCommitted(base)) return false;
+    min_x = min_y = min_z = 1.0e30f;
+    max_x = max_y = max_z = -1.0e30f;
+    const auto* ix = reinterpret_cast<const uint16_t*>(indices);
+    const uint32_t step = std::max<uint32_t>(1, index_count / 4096);
+    for (uint32_t i = 0; i < index_count; i += step) {
+        const uint64_t vertex = uint64_t(ix[i]) + g_state.base_vertex;
+        const uint64_t address = uint64_t(base) + vertex * stream.stride;
+        if (address > 0xFFFFFFFFull ||
+            !mem::IsCommitted(uint32_t(address)) ||
+            !mem::IsCommitted(uint32_t(address + 11))) continue;
+        float p[3];
+        std::memcpy(p, HostPtr(uint32_t(address)), sizeof(p));
+        if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]) ||
+            std::fabs(p[0]) > 10000.0f || std::fabs(p[1]) > 10000.0f ||
+            std::fabs(p[2]) > 10000.0f) continue;
+        min_x = std::min(min_x, p[0]); min_y = std::min(min_y, p[1]); min_z = std::min(min_z, p[2]);
+        max_x = std::max(max_x, p[0]); max_y = std::max(max_y, p[1]); max_z = std::max(max_z, p[2]);
+        ++valid;
+    }
+    return valid >= 3;
+}
+
+// Diagnostic probe for identifying the two rear lamp vertices from live Xbox draw data.
+// It is intentionally observational: no guessed anchors, transform edits, or render-state changes.
+void LogIndexedLampProbe(const uint8_t* indices, uint32_t index_count) {
+    static uint32_t reports = 0;
+    if (!indices || reports++ >= 4096) return;
+    const auto stream = g_state.streams[0];
+    if (!stream.vb || stream.stride < 16 || !index_count || index_count > 200000) return;
+    const uint32_t physical = R32(stream.vb + kResData);
+    if (!physical) return;
+    const uint32_t base = mem::VirtualFromPhysical(physical);
+    if (!base || !mem::IsCommitted(base)) return;
+    const auto* ix = reinterpret_cast<const uint16_t*>(indices);
+    const uint32_t samples = std::min<uint32_t>(12, index_count);
+    const uint32_t step = std::max<uint32_t>(1, index_count / samples);
+    const auto& world = g_state.transforms[256];
+    LOGI("lightning-lamp-probe: primDraw indices=%u stride=%u fvf=%08X ps=%08X "
+         "tex=(%08X,%08X) worldT=(%.4f,%.4f,%.4f) samples=%u",
+         index_count, stream.stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
+         g_state.textures[0], g_state.textures[1],
+         world[12], world[13], world[14], samples);
+    uint32_t emitted = 0;
+    for (uint32_t i = 0; i < index_count && emitted < samples; i += step) {
+        const uint64_t vertex = uint64_t(ix[i]) + g_state.base_vertex;
+        const uint64_t address = uint64_t(base) + vertex * stream.stride;
+        if (address > 0xFFFFFFFFull || !mem::IsCommitted(uint32_t(address)) ||
+            !mem::IsCommitted(uint32_t(address + 15))) continue;
+        float xyz[3]{};
+        uint32_t diffuse = 0;
+        std::memcpy(xyz, HostPtr(uint32_t(address)), sizeof(xyz));
+        std::memcpy(&diffuse, HostPtr(uint32_t(address + 12)), sizeof(diffuse));
+        if (!std::isfinite(xyz[0]) || !std::isfinite(xyz[1]) || !std::isfinite(xyz[2]) ||
+            std::fabs(xyz[0]) > 10000.0f || std::fabs(xyz[1]) > 10000.0f ||
+            std::fabs(xyz[2]) > 10000.0f) continue;
+        LOGI("lightning-lamp-probe: v=%u local=(%.5f,%.5f,%.5f) diffuse=%08X "
+             "argb=(%u,%u,%u,%u)", ix[i], xyz[0], xyz[1], xyz[2], diffuse,
+             (diffuse >> 24) & 255, (diffuse >> 16) & 255,
+             (diffuse >> 8) & 255, diffuse & 255);
+        ++emitted;
+    }
+}
+
 HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+    std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
+    std::size_t native_streak_count = 0;
+    LogIndexedLampProbe(indices, a[1]);
+    const bool streak_candidate = CaptureIndexedNativeWhiteStreaks(
+        indices, a[1], a[0], native_streaks.data(), native_streaks.size(), native_streak_count);
+    // Bounded body-geometry census: log sampled raw XYZ bounds together with each
+    // indexed draw's world matrix. The actual player-body draw can then be isolated
+    // against the bumper/side-skirt anchors from Build #55.
+    {
+        static uint32_t transform_reports = 0;
+        if (transform_reports++ < 2048) {
+            const auto& world = g_state.transforms[256];
+            float lo_x, lo_y, lo_z, hi_x, hi_y, hi_z;
+            uint32_t valid_xyz = 0;
+            const bool have_xyz = MeasureIndexedRawXYZ(indices, a[1],
+                lo_x, lo_y, lo_z, hi_x, hi_y, hi_z, valid_xyz);
+            LOGI("lightning-body-census: prim=%u indices=%u stride=%u fvf=%08X ps=%08X streak=%u lines=%u "
+                 "xyz=%u bounds=(%.4f,%.4f,%.4f)..(%.4f,%.4f,%.4f) "
+                 "T=(%.4f,%.4f,%.4f) R0=(%.4f,%.4f,%.4f) R1=(%.4f,%.4f,%.4f) R2=(%.4f,%.4f,%.4f)",
+                 a[0], a[1], g_state.streams[0].stride, g_state.vs_handle,
+                 g_state.ps ? g_state.ps->handle : 0, streak_candidate ? 1u : 0u,
+                 uint32_t(native_streak_count), have_xyz ? valid_xyz : 0u,
+                 have_xyz ? lo_x : 0.0f, have_xyz ? lo_y : 0.0f, have_xyz ? lo_z : 0.0f,
+                 have_xyz ? hi_x : 0.0f, have_xyz ? hi_y : 0.0f, have_xyz ? hi_z : 0.0f,
+                 world[12], world[13], world[14],
+                 world[0], world[1], world[2], world[4], world[5], world[6],
+                 world[8], world[9], world[10]);
+        }
+    }
+    if (g_trace) {
+        static uint32_t capture_reports = 0;
+        if (capture_reports++ < 256)
+            LOGI("lightning-capture: path=INDEXED prim=%u indices=%u stride=%u fvf=%08X ps=%08X accepted=%u lines=%u",
+                 a[0], a[1], g_state.streams[0].stride, g_state.vs_handle,
+                 g_state.ps ? g_state.ps->handle : 0, streak_candidate ? 1u : 0u,
+                 uint32_t(native_streak_count));
+    }
+    if (streak_candidate)
+        game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     CountTarget(false, a[1]);
-    if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
+    const bool replaced = streak_candidate &&
+        DrawLightningParticleMask(native_streaks.data(), native_streak_count);
+    if (g_backend && !replaced) g_backend->Draw(g_state, a[0], 0, a[1], indices);
     return 0;
 }
 
@@ -1499,10 +1653,217 @@ uint32_t UpVertices(const void* src, uint32_t bytes) {
     return g_up_header;
 }
 
+
+struct LightningLineVertex {
+    float x, y, z;
+    uint32_t color;
+};
+
+// Only XYZ+DIFFUSE line lists or paired-edge triangle strips are eligible. Keeping this
+// predicate narrow prevents unrelated particle meshes from being mistaken for speed streaks.
+bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t count,
+                               uint32_t stride, game::lightning_aura::ParticleLine* output,
+                               std::size_t capacity, std::size_t& captured) {
+    using game::lightning_aura::ParticleLine;
+    captured = 0;
+    const uint32_t fvf = g_state.vs_handle;
+    if (!vertices || (prim != 2 && prim != 5) || (fvf & 1u) || !(fvf & 0x2u) ||
+        !(fvf & 0x40u) || (fvf & 0x38u) || g_state.ps ||
+        count < 2 || count > 256 || (count & 1u)) return false;
+
+    // XYZ + DIFFUSE, optionally followed by texture coordinates.
+    const uint32_t tex_count = (fvf >> 8) & 0xFu;
+    if (tex_count > 2) return false;
+    uint32_t expected_stride = 16;
+    for (uint32_t t = 0; t < tex_count; ++t) {
+        const uint32_t size_code = (fvf >> (16 + t * 2)) & 3u;
+        expected_stride += (size_code == 0 ? 2u : size_code == 1 ? 3u : size_code == 2 ? 4u : 1u) * 4u;
+    }
+    if (stride != expected_stride) return false;
+
+    const auto* data = static_cast<const uint8_t*>(vertices);
+    auto read_vertex = [&](uint32_t index, float& x, float& y, float& z, uint32_t& color) {
+        const uint8_t* p = data + index * stride;
+        std::memcpy(&x, p, 4); std::memcpy(&y, p + 4, 4); std::memcpy(&z, p + 8, 4);
+        std::memcpy(&color, p + 12, 4);
+    };
+    auto white = [](uint32_t c) {
+        return ((c >> 24) & 0xFF) >= 24 && ((c >> 16) & 0xFF) >= 224 &&
+               ((c >> 8) & 0xFF) >= 224 && (c & 0xFF) >= 224;
+    };
+    float previous_x = 0, previous_y = 0, previous_z = 0, previous_alpha = 0;
+    bool have_previous = false;
+    for (uint32_t pair = 0; pair < count / 2 && captured < capacity; ++pair) {
+        float ax, ay, az, bx, by, bz;
+        uint32_t ca, cb;
+        read_vertex(pair * 2, ax, ay, az, ca);
+        read_vertex(pair * 2 + 1, bx, by, bz, cb);
+        if (!white(ca) || !white(cb) ||
+            !std::isfinite(ax) || !std::isfinite(ay) || !std::isfinite(az) ||
+            !std::isfinite(bx) || !std::isfinite(by) || !std::isfinite(bz)) {
+            if (prim == 5) have_previous = false;
+            continue;
+        }
+        const float alpha = float(std::min((ca >> 24) & 0xFF, (cb >> 24) & 0xFF)) / 255.0f;
+        if (prim == 2) {
+            const float dx = bx - ax, dy = by - ay, dz = bz - az;
+            const float length2 = dx * dx + dy * dy + dz * dz;
+            if (std::isfinite(length2) && length2 >= 0.0225f && length2 <= 400.0f)
+                output[captured++] = {ax, ay, az, bx, by, bz, alpha};
+            continue;
+        }
+
+        // For a triangle-strip ribbon, each adjacent vertex pair is one cross-section.
+        const float cx = (ax + bx) * 0.5f, cy = (ay + by) * 0.5f, cz = (az + bz) * 0.5f;
+        if (have_previous) {
+            const float dx = cx - previous_x, dy = cy - previous_y, dz = cz - previous_z;
+            const float length2 = dx * dx + dy * dy + dz * dz;
+            if (std::isfinite(length2) && length2 >= 0.0225f && length2 <= 400.0f)
+                output[captured++] = {previous_x, previous_y, previous_z, cx, cy, cz,
+                                      std::min(previous_alpha, alpha)};
+        }
+        previous_x = cx; previous_y = cy; previous_z = cz; previous_alpha = alpha;
+        have_previous = true;
+    }
+    return captured != 0;
+}
+// Draw in the exact transform/viewport/depth state of the native streak draw. The source
+// line endpoints are kept unchanged; only interior samples are jagged. The original white
+// draw is skipped only after this replacement draw has actually been submitted.
+bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, std::size_t line_count) {
+    using namespace game::lightning_aura;
+    const float speed = MeasuredSpeedKmh();
+    if (!g_backend || speed < 150.0f || !lines || !line_count) return false;
+
+    // Captured XYZ values are the native streak draw's input coordinates. Keep them
+    // unchanged and render with the exact same world transform as the native draw.
+    // Do not remap through PlayerCarBodyTransform: the Android port can apply a
+    // different car-body placement, which makes that second transform drift away
+    // from the native streaks. The original white draw and this replacement now
+    // share one coordinate space and one transform.
+    const std::vector<ParticleLine> source_lines(lines, lines + line_count);
+
+    if (g_trace) {
+        static uint32_t mapping_reports = 0;
+        if (mapping_reports++ < 96) {
+            const auto& p = source_lines[0];
+            const auto& world = g_state.transforms[256];
+            LOGI("lightning-map: native-space speed=%.1f lines=%u worldT=(%.3f,%.3f,%.3f)",
+                 speed, uint32_t(line_count), world[12], world[13], world[14]);
+            LOGI("lightning-map: source0=(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) alpha=%.3f",
+                 p.start_x, p.start_y, p.start_z, p.end_x, p.end_y, p.end_z, p.alpha);
+        }
+    }
+
+    std::vector<Vertex> masked(source_lines.size() * kParticleMaskVerticesPerLine);
+    const std::size_t vertex_count = BuildParticleMaskVertices(
+        speed, float(g_presents) / 60.0f, source_lines.data(), source_lines.size(),
+        masked.data(), masked.size());
+    if (!vertex_count) return false;
+
+    std::vector<LightningLineVertex> draw_vertices(vertex_count);
+    gpu::State aura = g_state;
+    aura.vs.reset();
+    aura.ps.reset();
+    aura.vs_handle = 0x42;
+    aura.textures.fill(0);
+    aura.palettes.fill(0);
+    // Keep aura.transforms[256] untouched: it must match the native streak draw.
+    aura.rs[gpu::kRsLighting] = 0;
+    aura.rs[gpu::kRsColorVertex] = 1;
+    aura.rs[gpu::kRsZEnable] = 1;
+    aura.rs[gpu::kRsCullMode] = 1;
+    aura.simple[gpu::kMBlendEnable >> 2] = 1;
+    aura.simple[gpu::kMSrcBlend >> 2] = 5;
+    aura.simple[gpu::kMDestBlend >> 2] = 2;
+    aura.simple[gpu::kMZWriteEnable >> 2] = 0;
+    aura.simple[gpu::kMColorWriteEnable >> 2] = 0xF;
+
+    auto submit = [&](uint32_t rgb, float gain) {
+        for (std::size_t i = 0; i < vertex_count; ++i) {
+            const float alpha = std::clamp(masked[i].intensity * gain, 0.0f, 1.0f);
+            const uint32_t a = uint32_t(alpha * 255.0f);
+            draw_vertices[i] = {masked[i].x, masked[i].y, masked[i].z, (a << 24) | rgb};
+        }
+        aura.streams[0] = {UpVertices(draw_vertices.data(), uint32_t(draw_vertices.size() * sizeof(LightningLineVertex))),
+                           sizeof(LightningLineVertex)};
+        g_backend->Draw(aura, 2, 0, uint32_t(vertex_count), nullptr);
+    };
+    // Additive stacked passes: warm orange fringe, saturated golden body, white-hot core.
+    submit(0x00FF7A18u, 0.34f);
+    submit(0x00FFC02Au, 0.68f);
+    submit(0x00FFFFFFu, 0.94f);
+
+    // TEMP DEBUG: put two unmistakable crosses on the live native streak roots.
+    // The left/right roots are selected from this exact draw's newest ParticleLine
+    // samples, then drawn with the same world matrix as the streaks. This makes the
+    // test isolate marker placement from ribbon endpoint placement: if a cross is
+    // on a tail lamp but the gold ribbon appears behind it, inspect endpoint age/
+    // generation; if the cross itself is displaced, inspect the marker transform.
+    if (source_lines.size() >= 2) {
+        std::size_t left = source_lines.size(), right = source_lines.size();
+        for (std::size_t i = 0; i < source_lines.size(); ++i) {
+            const auto& p = source_lines[i];
+            if (!std::isfinite(p.start_x) || !std::isfinite(p.start_y) ||
+                !std::isfinite(p.start_z) || p.alpha <= 0.001f) continue;
+            if (left == source_lines.size() || p.start_x < source_lines[left].start_x) left = i;
+            if (right == source_lines.size() || p.start_x > source_lines[right].start_x) right = i;
+        }
+        if (left != source_lines.size() && right != source_lines.size() && left != right) {
+            constexpr float r = 0.085f;
+            std::array<LightningLineVertex, 12> dots{};
+            auto cross = [&](std::size_t at, const ParticleLine& p, uint32_t color) {
+                const float x = p.start_x, y = p.start_y, z = p.start_z;
+                dots[at + 0] = {x - r, y, z, color}; dots[at + 1] = {x + r, y, z, color};
+                dots[at + 2] = {x, y - r, z, color}; dots[at + 3] = {x, y + r, z, color};
+                dots[at + 4] = {x, y, z - r, color}; dots[at + 5] = {x, y, z + r, color};
+            };
+            cross(0, source_lines[left], 0xFFFF35D3u);   // magenta = local -X root
+            cross(6, source_lines[right], 0xFF27E8FFu); // cyan = local +X root
+            gpu::State debug = aura;
+            debug.rs[gpu::kRsZEnable] = 0; // keep markers visible over the bodywork
+            debug.simple[gpu::kMZWriteEnable >> 2] = 0;
+            debug.streams[0] = {UpVertices(dots.data(), uint32_t(sizeof(dots))),
+                                sizeof(LightningLineVertex)};
+            g_backend->Draw(debug, 2, 0, uint32_t(dots.size()), nullptr);
+
+            static uint32_t marker_reports = 0;
+            if (marker_reports++ < 160) {
+                const auto& l = source_lines[left];
+                const auto& rr = source_lines[right];
+                LOGI("lightning-marker-debug: frame=%u speed=%.1f left[%u]=(%.5f,%.5f,%.5f)->(%.5f,%.5f,%.5f) right[%u]=(%.5f,%.5f,%.5f)->(%.5f,%.5f,%.5f)",
+                     g_presents, speed, uint32_t(left), l.start_x, l.start_y, l.start_z,
+                     l.end_x, l.end_y, l.end_z, uint32_t(right),
+                     rr.start_x, rr.start_y, rr.start_z, rr.end_x, rr.end_y, rr.end_z);
+            }
+        }
+    }
+    return true;
+}
+
 void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
     if (!g_backend || !count || !stride) return;
     SyncDeferred();
     auto stream = g_state.streams[0];
+    // Discovery must not depend on the speed publisher: until the native streak source is
+    // identified, gating this census on aura_speed would deadlock discovery at the default 0 km/h.
+    // This records candidate UP geometry only; it does not reinterpret or publish particles.
+    const float aura_speed = game::lightning_aura::MeasuredSpeedKmh();
+    if (g_trace) {
+        static uint32_t candidate_dumps = 0;
+        if (candidate_dumps++ < 96) {
+            LOGI("lightning-census: UP speed=%.1f prim=%u count=%u stride=%u vs=%08X",
+                 aura_speed, prim, count, stride, g_state.vs_handle);
+            if (vertices && stride >= 12 && count <= 128) {
+                const auto* bytes = static_cast<const uint8_t*>(vertices);
+                for (uint32_t v = 0; v < std::min(count, 3u); ++v) {
+                    float xyz[3]{};
+                    std::memcpy(xyz, bytes + v * stride, sizeof(xyz));
+                    LOGI("lightning-census:   v%u %.3f %.3f %.3f", v, xyz[0], xyz[1], xyz[2]);
+                }
+            }
+        }
+    }
     if (g_trace && (g_state.vs_handle & 1) && g_state.vs && count <= 8) {
         static int dumps = 0;
         if (dumps++ < 8) {
@@ -1535,9 +1896,25 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
                  stride);
         }
     }
+    std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
+    std::size_t native_streak_count = 0;
+    const bool streak_candidate = CaptureNativeWhiteStreaks(
+        prim, vertices, count, stride, native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (g_trace) {
+        static uint32_t capture_reports = 0;
+        if (capture_reports++ < 256)
+            LOGI("lightning-capture: path=UP prim=%u count=%u stride=%u fvf=%08X ps=%08X accepted=%u lines=%u",
+                 prim, count, stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
+                 streak_candidate ? 1u : 0u, uint32_t(native_streak_count));
+    }
+    if (streak_candidate) {
+        game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
+    }
     g_state.streams[0] = {UpVertices(vertices, count * stride), stride};
     CountTarget(false, count);
-    g_backend->Draw(g_state, prim, 0, count, nullptr);
+    const bool replaced = streak_candidate &&
+        DrawLightningParticleMask(native_streaks.data(), native_streak_count);
+    if (!replaced) g_backend->Draw(g_state, prim, 0, count, nullptr);
     g_state.streams[0] = stream;
 }
 
@@ -1840,11 +2217,38 @@ HLE_STDCALL(D3DDevice_DrawIndexedVerticesUP, 5) {
     const uint16_t* indices = static_cast<const uint16_t*>(HostPtr(a[2]));
     uint32_t vertices = uint32_t(*std::max_element(indices, indices + count)) + 1;
     SyncDeferred();
+    const auto* source_vertices = static_cast<const uint8_t*>(HostPtr(a[3]));
+    std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
+    std::size_t native_streak_count = 0;
+    bool gathered_ok = count <= 256 && (count % 2 == 0);
+    std::vector<uint8_t> gathered;
+    if (gathered_ok) {
+        gathered.resize(std::size_t(count) * stride);
+        for (uint32_t i = 0; i < count; ++i) {
+            const uint64_t offset = uint64_t(indices[i]) * stride;
+            if (offset + stride > uint64_t(vertices) * stride) { gathered_ok = false; break; }
+            std::memcpy(gathered.data() + std::size_t(i) * stride, source_vertices + offset, stride);
+        }
+    }
+    const bool streak_candidate = gathered_ok && CaptureNativeWhiteStreaks(
+        prim, gathered.data(), count, stride, native_streaks.data(), native_streaks.size(), native_streak_count);
+    if (g_trace) {
+        static uint32_t capture_reports = 0;
+        if (capture_reports++ < 256)
+            LOGI("lightning-capture: path=INDEXED_UP prim=%u indices=%u stride=%u fvf=%08X gathered=%u accepted=%u lines=%u",
+                 prim, count, stride, g_state.vs_handle, gathered_ok ? 1u : 0u,
+                 streak_candidate ? 1u : 0u, uint32_t(native_streak_count));
+    }
+    if (streak_candidate)
+        game::lightning_aura::PublishNativeSpeedStreaks(native_streaks.data(), native_streak_count);
     uint32_t copied = mem::VirtualFromPhysical(R32(UpVertices(indices, count * 2) + kResData));
     auto stream = g_state.streams[0];
-    g_state.streams[0] = {UpVertices(HostPtr(a[3]), vertices * stride), stride};
+    g_state.streams[0] = {UpVertices(source_vertices, vertices * stride), stride};
     CountTarget(false, count);
-    g_backend->Draw(g_state, prim, 0, count, static_cast<const uint8_t*>(HostPtr(copied)));
+    const bool replaced = streak_candidate &&
+        DrawLightningParticleMask(native_streaks.data(), native_streak_count);
+    if (!replaced)
+        g_backend->Draw(g_state, prim, 0, count, static_cast<const uint8_t*>(HostPtr(copied)));
     g_state.streams[0] = stream;
     return 0;
 }

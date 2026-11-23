@@ -48,6 +48,7 @@
 #include "cpu/x86_ops.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#include "lightning_aura.h"
 
 namespace game {
 
@@ -240,6 +241,7 @@ void Clear() {
     g_frames.clear();
     g_samples.clear();
     g_clock = g_next_sample = 0;
+    lightning_aura::PublishMeasuredSpeed(0.0f);
     g_conns.clear();
 }
 
@@ -288,6 +290,26 @@ void Sample() {
         g_samples.push_back(s);
         f.count++;
     });
+    // Estimate player speed from successive render-body positions. kRecordRange and
+    // kStreamStep above are in metres; samples use the race clock at 30 Hz.
+    if (f.player >= 0) {
+        const CarSample& current = g_samples[f.first + size_t(f.player)];
+        if (!g_frames.empty() && g_frames.back().player >= 0) {
+            const Frame& previous_frame = g_frames.back();
+            const CarSample& previous = g_samples[previous_frame.first + size_t(previous_frame.player)];
+            const double elapsed = f.t - previous_frame.t;
+            if (elapsed > 1e-4) {
+                const float metres = Length(current.place - previous.place);
+                lightning_aura::PublishMeasuredSpeed(metres / float(elapsed) * 3.6f);
+            } else {
+                lightning_aura::PublishMeasuredSpeed(0.0f);
+            }
+        } else {
+            lightning_aura::PublishMeasuredSpeed(0.0f);
+        }
+    } else {
+        lightning_aura::PublishMeasuredSpeed(0.0f);
+    }
     g_frames.push_back(f);
     // past the budget: the oldest tenth goes
     if (g_samples.size() * sizeof(CarSample) > kMaxBytes && g_frames.size() > 10) {
@@ -1153,7 +1175,237 @@ void DrawSaveNotice() {
     dl->AddText(font, px, ImVec2(p0.x + 20 * u, p0.y + (h - px) / 2), IM_COL32(255, 238, 208, 255), text.c_str());
 }
 
+void DrawLightningAura() {
+    // Draw in the game's foreground, but build the effect in a car-oriented basis:
+    // the game's longitudinal axis is not guaranteed to be local Z.
+    if (!Racing() || g_active) return;
+
+    CarSample car{};
+    Vec travel{};
+    float sample_speed = 0.0f;
+    {
+        std::lock_guard lock(g_lock);
+        if (g_frames.size() < 2) return;
+        const Frame& current = g_frames.back();
+        if (current.player < 0 || size_t(current.player) >= current.count) return;
+        const size_t at = current.first + size_t(current.player);
+        if (at >= g_samples.size()) return;
+        car = g_samples[at];
+
+        const Frame& previous_frame = g_frames[g_frames.size() - 2];
+        const CarSample* previous = Find(previous_frame, car.conn, car.info);
+        const double elapsed = current.t - previous_frame.t;
+        if (!previous || elapsed <= 1.0e-4) return;
+        travel = car.place - previous->place;
+        const float distance = Length(travel);
+        if (!std::isfinite(distance) || distance < 1.0e-3f) return;
+        sample_speed = distance / float(elapsed) * 3.6f;
+    }
+
+    // Use the sampled displacement as the speed source. This avoids a stale zero
+    // from suppressing the aura when the game's HUD speed and our sample cadence differ.
+    const float measured = lightning_aura::MeasuredSpeedKmh();
+    const float speed = std::max(sample_speed, std::isfinite(measured) ? measured : 0.0f);
+    // The aura is intentionally inactive below 150 km/h and reaches full
+    // strength at 500 km/h. This keeps the activation window deterministic.
+    if (!std::isfinite(speed) || speed < 150.0f) return;
+    const float intensity = lightning_aura::IntensityForSpeed(speed);
+    if (intensity <= 0.0f) return;
+    // Keep secondary effects perceptible immediately after activation; ramp to full strength by 500 km/h.
+    const float fx_intensity = 0.42f + 0.58f * intensity;
+
+    const Mat rotation = MatOf(car.rot, {});
+    Vec axes[3] = {
+        Normal({rotation.m[0], rotation.m[1], rotation.m[2]}),
+        Normal({rotation.m[4], rotation.m[5], rotation.m[6]}),
+        Normal({rotation.m[8], rotation.m[9], rotation.m[10]})
+    };
+    const Vec direction = Normal(travel);
+    int forward_axis = 0;
+    float forward_alignment = Dot(axes[0], direction);
+    for (int i = 1; i < 3; ++i) {
+        const float alignment = Dot(axes[i], direction);
+        if (std::fabs(alignment) > std::fabs(forward_alignment)) {
+            forward_axis = i;
+            forward_alignment = alignment;
+        }
+    }
+    const Vec forward = axes[forward_axis] * (forward_alignment >= 0.0f ? 1.0f : -1.0f);
+    int up_axis = -1;
+    float up_alignment = -1.0f;
+    for (int i = 0; i < 3; ++i) {
+        if (i == forward_axis) continue;
+        const float alignment = std::fabs(axes[i].z);
+        if (alignment > up_alignment) up_alignment = alignment, up_axis = i;
+    }
+    if (up_axis < 0) return;
+    const Vec up = axes[up_axis] * (axes[up_axis].z >= 0.0f ? 1.0f : -1.0f);
+    const Vec side = Normal(Cross(up, forward), axes[3 - forward_axis - up_axis]);
+    auto world_point = [&](float x, float y, float z) {
+        return car.place + side * x + up * y + forward * z;
+    };
+
+    const uint32_t cam = kernel::R32(kViews + kPlayerView * kViewSize + kViewCamera);
+    if (!Committed(cam, kCamFov + sizeof(uint16_t))) return;
+    const float fov = float(kernel::G<uint16_t>(cam + kCamFov)) * ((2.0f * kPi) / 65536.0f);
+    if (!std::isfinite(fov) || fov < 0.05f || fov > 3.0f) return;
+
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    if (screen.x <= 0.0f || screen.y <= 0.0f) return;
+    const float aspect = Aspect();
+    if (!std::isfinite(aspect) || aspect <= 0.1f) return;
+    const float view_w = std::min(screen.x, screen.y * aspect);
+    const float view_h = view_w / aspect;
+    const float view_x = (screen.x - view_w) * 0.5f;
+    const float view_y = (screen.y - view_h) * 0.5f;
+    const float tan_h = std::tan(fov * 0.5f);
+    const float tan_v = tan_h / aspect;
+    if (!std::isfinite(tan_h) || !std::isfinite(tan_v) || tan_h <= 0.0f || tan_v <= 0.0f) return;
+    const float fx = view_w * 0.5f / tan_h;
+    const float fy = view_h * 0.5f / tan_v;
+
+    auto project_world = [&](Vec p, ImVec2& out, float* depth = nullptr) {
+        const float vx = p.x * F(cam) + p.y * F(cam + 0x10) + p.z * F(cam + 0x20) + F(cam + 0x30);
+        const float vy = p.x * F(cam + 4) + p.y * F(cam + 0x14) + p.z * F(cam + 0x24) + F(cam + 0x34);
+        const float vz = p.x * F(cam + 8) + p.y * F(cam + 0x18) + p.z * F(cam + 0x28) + F(cam + 0x38);
+        if (!std::isfinite(vx) || !std::isfinite(vy) || !std::isfinite(vz) || vz <= 0.5f) return false;
+        out = ImVec2(view_x + view_w * 0.5f + vx * fx / vz,
+                     view_y + view_h * 0.5f + vy * fy / vz);
+        if (depth) *depth = vz;
+        return std::isfinite(out.x) && std::isfinite(out.y) &&
+               out.x >= view_x - view_w * 0.18f && out.x <= view_x + view_w * 1.18f &&
+               out.y >= view_y - view_h * 0.18f && out.y <= view_y + view_h * 1.18f;
+    };
+    auto project_local = [&](const lightning_aura::Vertex& v, ImVec2& out) {
+        return project_world(world_point(v.x, v.y, v.z), out);
+    };
+    auto project_local_depth = [&](const lightning_aura::Vertex& v, ImVec2& out, float& depth) {
+        // Advance the lightning toward the rear bumper instead of letting it trail too far behind.
+        constexpr float kBumperwardOffset = 0.90f;
+        return project_world(world_point(v.x, v.y, v.z + kBumperwardOffset), out, &depth);
+    };
+
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const float scale = screen.y / 720.0f;
+    const float time = float(ImGui::GetTime());
+    const auto hash01 = [](uint32_t v) {
+        v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16;
+        return float(v & 0x00ffffffu) / float(0x01000000u);
+    };
+
+    // Volumetric-looking exhaust haze: layered, fading puffs dragged behind the bumper.
+    for (unsigned i = 0; i < 10; ++i) {
+        const float seed = float(i) * 1.71f;
+        const float age = std::fmod(time * 0.16f + float(i) * 0.103f, 1.0f);
+        const float x = std::sin(time * 0.72f + seed) * (0.18f + age * 1.25f);
+        const float y = 0.20f + age * 0.72f + std::sin(time * 0.9f + seed) * 0.10f;
+        const float z = -2.65f - age * 5.8f;
+        ImVec2 p;
+        float depth = 0.0f;
+        if (!project_world(world_point(x, y, z), p, &depth)) continue;
+        const float perspective = std::clamp(10.0f / depth, 0.35f, 1.25f);
+        const float radius = (7.0f + age * 16.0f) * scale * perspective;
+        const int alpha = int((1.0f - age) * fx_intensity * 105.0f);
+        dl->AddCircleFilled(p, radius * 1.75f, IM_COL32(67, 55, 42, alpha / 2), 20);
+        dl->AddCircleFilled(p, radius, IM_COL32(143, 93, 42, alpha), 20);
+        dl->AddCircleFilled(p, radius * 0.48f, IM_COL32(238, 155, 55, alpha / 3), 16);
+    }
+
+    // Animated sparks: short hot cores with long amber tails, fanning out from the rear.
+    for (unsigned i = 0; i < 34; ++i) {
+        const float seed = hash01(i * 97u + 13u);
+        const float phase = std::fmod(time * (0.72f + seed * 0.42f) + seed * 1.37f, 1.0f);
+        const float spread = (hash01(i * 193u + 5u) - 0.5f) * (1.5f + phase * 3.2f);
+        const float lift = (hash01(i * 271u + 9u) - 0.25f) * (0.8f + phase * 1.4f);
+        const float z = -2.5f - phase * (3.2f + seed * 4.8f);
+        const float x = (hash01(i * 331u + 17u) - 0.5f) * 2.2f + spread;
+        const float y = 0.18f + lift;
+        ImVec2 a, b;
+        if (!project_world(world_point(x, y, z), a) ||
+            !project_world(world_point(x + spread * 0.10f, y + lift * 0.06f, z - 0.38f), b)) continue;
+        const int alpha = int((1.0f - phase * 0.72f) * fx_intensity * 255.0f);
+        dl->AddLine(a, b, IM_COL32(255, 112, 0, alpha / 3), (2.8f + seed * 1.8f) * scale);
+        dl->AddLine(a, b, IM_COL32(255, 198, 35, alpha), 1.35f * scale);
+        dl->AddCircleFilled(a, (1.1f + seed * 0.8f) * scale, IM_COL32(255, 248, 190, alpha), 10);
+    }
+
+    // Prefer the native Light Trail geometry when a verified game-side capture hook
+    // has published it. The mask keeps every streak's measured endpoints and direction.
+    // The capture producer is intentionally separate: never guess a D3D draw call and
+    // mistake tire smoke, debris, or unrelated translucent geometry for Light Trail.
+    constexpr size_t kMaxCapturedLines = 256;
+    constexpr size_t kMaskCapacity =
+        kMaxCapturedLines * lightning_aura::kParticleMaskVerticesPerLine;
+    lightning_aura::ParticleLine native_lines[kMaxCapturedLines]{};
+    lightning_aura::Vertex mask_vertices[kMaskCapacity]{};
+    const size_t native_count =
+        lightning_aura::CopyNativeSpeedStreaks(native_lines, kMaxCapturedLines);
+    const size_t mask_count = lightning_aura::BuildParticleMaskVertices(
+        speed, time, native_lines, native_count, mask_vertices, kMaskCapacity);
+
+    // One concise runtime confirmation lets the first device test distinguish the
+    // car-relative visual fallback from a successfully captured native streak mask.
+    static bool reported_activation = false;
+    if (!reported_activation) {
+        LOGI("lightning aura active: speed %.1f km/h, native streaks %zu, mask vertices %zu, mode %s",
+             speed, native_count, mask_count, mask_count ? "native-mask" : "car-relative");
+        reported_activation = true;
+    }
+
+    auto draw_filament = [&](const lightning_aura::Vertex* points, size_t point_count) {
+        for (size_t i = 0; i + 1 < point_count; i += 2) {
+            ImVec2 a, b;
+            float da = 0.0f, db = 0.0f;
+            if (!project_local_depth(points[i], a, da) ||
+                !project_local_depth(points[i + 1], b, db)) continue;
+            const float depth = std::max(0.5f, (da + db) * 0.5f);
+            const float perspective = std::clamp(10.0f / depth, 0.32f, 1.65f);
+            const float glow = std::clamp(points[i].intensity * (0.68f + 0.32f * fx_intensity), 0.0f, 1.0f);
+            const int alpha = int(248.0f * glow);
+            if (alpha < 6) continue;
+
+            // Screen-space ribbon: tapered polygon layers give each 3D-projected
+            // bolt a broad amber sheath, a hot yellow body and a narrow white core.
+            const float dx = b.x - a.x, dy = b.y - a.y;
+            const float len = std::sqrt(dx * dx + dy * dy);
+            if (len < 0.35f) continue;
+            const float nx = -dy / len, ny = dx / len;
+            const float pulse = 0.88f + 0.12f * std::sin(time * 17.0f + float(i) * 0.31f);
+            const float base = scale * perspective * pulse;
+            auto ribbon = [&](float wa, float wb, ImU32 color) {
+                const ImVec2 quad[4] = {
+                    ImVec2(a.x + nx * wa, a.y + ny * wa),
+                    ImVec2(b.x + nx * wb, b.y + ny * wb),
+                    ImVec2(b.x - nx * wb, b.y - ny * wb),
+                    ImVec2(a.x - nx * wa, a.y - ny * wa)
+                };
+                dl->AddConvexPolyFilled(quad, 4, color);
+            };
+
+            dl->AddLine(a, b, IM_COL32(255, 76, 0, alpha / 3), 30.0f * base);
+            ribbon(10.0f * base, 7.0f * base, IM_COL32(255, 105, 0, alpha / 5));
+            ribbon(5.8f * base, 3.8f * base, IM_COL32(255, 145, 0, alpha * 3 / 4));
+            ribbon(2.8f * base, 1.7f * base, IM_COL32(255, 207, 34, alpha));
+            ribbon(1.05f * base, 0.55f * base,
+                   IM_COL32(255, 255, 238, std::min(255, alpha + 65)));
+
+        }
+    };
+
+    if (mask_count) {
+        draw_filament(mask_vertices, mask_count);
+    } else {
+        // Until the native Light Trail capture hook is verified, retain the animated
+        // car-relative lightning design as a visible fallback, not as fake masking.
+        constexpr size_t kBoltVertices = lightning_aura::kVertexCount;
+        lightning_aura::Vertex preview_vertices[kBoltVertices]{};
+        const size_t preview_count =
+            lightning_aura::BuildVertices(intensity, time, preview_vertices, kBoltVertices);
+        draw_filament(preview_vertices, preview_count);
+    }
+}
 void DrawReplayHud() {
+    DrawLightningAura();
     DrawSaveNotice();
     if (!g_active && g_post_race && !app::MenuOpen()) {
         DrawPostRaceButton();
@@ -1423,6 +1675,32 @@ void ReplayAudio(float* mix, uint32_t frames) {
         auto keep = std::find_if(g_marks.begin(), g_marks.end(), [](const Mark& m) { return m.frame >= g_pcm_base; });
         g_marks.erase(g_marks.begin(), keep);
     }
+}
+
+// Current player-car body transform, taken from the same CarRenderInfo block consumed by
+// CarRenderInfo::Render (0x255490). The cube camera identifies the player among live car
+// connections exactly as the replay recorder does; this is not a guessed world offset.
+bool PlayerCarBodyTransform(float out[16]) {
+    if (!out) return false;
+    std::lock_guard lock(g_lock);
+    Vec player{};
+    if (!PlayerMiddle(player)) return false;
+    float nearest = 6.0f;
+    bool found = false;
+    Mat body{};
+    ForEachConn([&](uint32_t conn, uint32_t) {
+        Mat candidate = ReadMat(conn + kConnBody);
+        Vec place{candidate.m[12], candidate.m[13], candidate.m[14]};
+        float distance = Length(place - player);
+        if (distance < nearest) {
+            nearest = distance;
+            body = candidate;
+            found = true;
+        }
+    });
+    if (!found) return false;
+    std::memcpy(out, body.m, sizeof(body.m));
+    return true;
 }
 
 bool ReplayMenuHit(float x, float y) {
