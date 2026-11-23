@@ -148,6 +148,12 @@ def main():
         0x0020A770: "particle helper",
         0x00242D20: "car emitter position setter",
         0x0024C8D0: "car emitter position collector",
+        0x001879C0: "GetSimableSpeedKmh accessor",
+        0x0018D330: "simable speed/property helper",
+        0x0018D3C0: "simable property helper",
+        0x00188800: "simable property helper",
+        0x001927B0: "simable property registration",
+        0x001965D0: "script function registration",
     }
     for va, label in focus.items():
         off = TEXT_RAW + va - TEXT_VA
