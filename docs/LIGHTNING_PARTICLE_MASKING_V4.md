@@ -85,3 +85,6 @@ The resource identity is established statically from the XBE. Build verification
 - The runtime hook publishes the accessor result only for manager slot 0 while the game is in race state, preventing speed values from other Simables from driving the aura.
 
 The speed accessor and manager layout are statically mapped. The player-slot selection is implemented as the single-player slot-0 path; final build validation is pending.
+
+
+The XBE resolver at `0x00051170` computes the resource ID as `h = h * 33 + byte`, starting from `0xFFFFFFFF`. Applying it to the exact uppercase name `CARFX_NOS_BLOWOFF` yields `0x6FB574F0`. The capture hook uses the resolved slot `0x00469A44` and this statically computed hash as a fallback.
