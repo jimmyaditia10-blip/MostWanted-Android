@@ -37,6 +37,8 @@ TARGETS = {
     "CarFxNosBlowoffHandle": 0x00469A44,
     "GetSimableSpeedKmh": 0x003DCD88,
     "SpeedKmh": 0x003DFA44,
+    "SimableManagerGlobal": 0x0048FC50,
+    "PlayerManagerSlotGlobal": 0x0048FC5C,
 }
 
 def main():
@@ -154,6 +156,12 @@ def main():
         0x00188800: "simable property helper",
         0x001927B0: "simable property registration",
         0x001965D0: "script function registration",
+        0x0016C530: "simable manager indexed getter",
+        0x0016C550: "simable manager count getter",
+        0x0016D880: "player state helper",
+        0x00183910: "simable helper",
+        0x001863C0: "player simable lookup helper",
+        0x00181900: "player manager helper",
     }
     for va, label in focus.items():
         off = TEXT_RAW + va - TEXT_VA
