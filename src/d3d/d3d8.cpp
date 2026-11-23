@@ -1429,6 +1429,11 @@ HLE_STDCALL(D3DDevice_SetPixelShaderConstant, 3) {
 
 // drawing
 
+namespace {
+void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint32_t stride,
+                          const uint16_t* indices, const void* vertices);
+}  // namespace
+
 HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
