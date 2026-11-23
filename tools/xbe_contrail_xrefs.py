@@ -30,6 +30,10 @@ TARGETS = {
     "CARFX_NOS_BLOWOFF": 0x003E97A0,
     "CARSFX_WindNoise": 0x003D13EC,
     "CARSFX_WindWeather": 0x003D13D8,
+    "CarEmitterPositionPoolGlobal": 0x004D5758,
+    "ParticleSlotPoolGlobal": 0x00480B4C,
+    "EmitterSlotPoolGlobal": 0x00480B50,
+    "EmitterGroupSlotPoolGlobal": 0x00480B54,
 }
 
 def main():
