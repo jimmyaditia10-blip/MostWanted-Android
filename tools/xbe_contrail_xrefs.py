@@ -100,6 +100,11 @@ def main():
         print(f"{name} VA={va:#010x}: {len(hits)} raw references")
         for off in hits[:80]:
             print(f"  file+0x{off:06X}")
+            if off >= 0x3614D4:
+                lo_data = max(0, off - 0x60)
+                hi_data = min(len(data), off + 0x64)
+                print(f"    data bytes file+0x{lo_data:06X}..0x{hi_data:06X}:")
+                print("      " + data[lo_data:hi_data].hex(" "))
             if 0x1000 <= off < 0x3614D4:
                 va = TEXT_VA + off - TEXT_RAW
                 lo = max(TEXT_RAW, off - 24)
