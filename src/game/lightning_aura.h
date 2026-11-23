@@ -13,6 +13,9 @@ void WriteDiagnosticLog(const char* format, ...) noexcept;
 // Used for bounded, observational renderer tracing; it does not alter particle state.
 void SetNativeParticleDrawScope(bool active) noexcept;
 bool NativeParticleDrawScopeActive() noexcept;
+// True only while the current native particle group resolves to CARFX_NOS_BLOWOFF.
+void SetNativeParticleEffectMatch(bool matched) noexcept;
+bool NativeParticleEffectMatched() noexcept;
 
 struct Vertex {
     float x, y, z;
