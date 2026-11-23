@@ -2,6 +2,11 @@ name: Rangga Casper Original Base APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/original-base-apk.yml
 
 permissions:
   contents: read
