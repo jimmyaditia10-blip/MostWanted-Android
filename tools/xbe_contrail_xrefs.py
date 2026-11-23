@@ -107,7 +107,7 @@ def main():
                     print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
                 # Also decode from the nearest common x86 frame prologue, if present.
                 prologues = [p for p in range(max(TEXT_RAW, off - 0x300), off)
-                             if data[p:p+3] == b"\\x55\\x8B\\xEC"]
+                             if data[p:p+3] == bytes((0x55, 0x8B, 0xEC))]
                 if prologues:
                     p = prologues[-1]
                     print(f"    nearest frame function from VA {TEXT_VA + p - TEXT_RAW:#010x}:")
