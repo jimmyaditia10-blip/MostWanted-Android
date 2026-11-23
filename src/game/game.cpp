@@ -455,15 +455,18 @@ X86_FUNC(sub_000C5900) {
     if (game::lightning_aura::NativeParticleDrawScopeActive()) {
         constexpr uint32_t kNosBlowoffHandle = 0x00469A44;
         const uint32_t effect_id = kernel::R32(ctx.esp + 4);
-        const uint32_t nos_handle = mem::IsCommitted(kNosBlowoffHandle)
+        // 0x51170 hashes names with h = h * 33 + byte, seed 0xFFFFFFFF.
+        // CARFX_NOS_BLOWOFF therefore resolves to 0x6FB574F0.
+        const uint32_t resolved_handle = mem::IsCommitted(kNosBlowoffHandle)
             ? kernel::R32(kNosBlowoffHandle) : 0;
-        const bool match = nos_handle != 0 && effect_id == nos_handle;
+        const uint32_t nos_handle = resolved_handle ? resolved_handle : 0x6FB574F0u;
+        const bool match = effect_id == nos_handle;
         game::lightning_aura::SetNativeParticleEffectMatch(match);
         if (match) {
             static uint32_t reports = 0;
             if (reports++ < 32)
                 game::lightning_aura::WriteDiagnosticLog(
-                    "lightning-nos-effect: id=%08X handle=%08X source=CARFX_NOS_BLOWOFF",
+                    "lightning-nos-effect: id=%08X handle=%08X source=CARFX_NOS_BLOWOFF hash=6FB574F0",
                     effect_id, nos_handle);
         }
     }
