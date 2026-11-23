@@ -33,7 +33,6 @@ KNOWN={
   0x00374940:"D3DDevice_SetRenderTarget",
   0x00376A60:"D3DDevice_Clear",
   0x00375190:"D3DDevice_SetTexture",
-  0x00373700:"D3DDevice_SetIndices / draw setup nearby",
 }
 WORDS=("CarRenderConn","Velocity","EmitterPositionSlotPool","EmitterSlotPool",
  "EmitterGroupSlotPool","ParticleSlotPool","Light Trail","LightTrail","Contrail",
