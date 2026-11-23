@@ -115,6 +115,12 @@ def main():
                             data[p:min(TEXT_RAW + TEXT_SIZE, p + 0x180)],
                             TEXT_VA + p - TEXT_RAW):
                         print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
+                if name == "CarEmitterPositionSlotPool":
+                    p = 0x232E87
+                    print("    car-emitter pool initialization sequence:")
+                    for ins in Cs(CS_ARCH_X86, CS_MODE_32).disasm(
+                            data[p:p + 0x220], 0x242E87):
+                        print(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
 
 if __name__ == "__main__":
     main()
