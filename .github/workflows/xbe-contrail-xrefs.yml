@@ -1,0 +1,30 @@
+name: XBE Contrail Static Xrefs
+
+on:
+  push:
+    branches: ["feature/lightning-xbe-particle-trace"]
+    paths:
+      - "tools/xbe_contrail_xrefs.py"
+      - ".github/workflows/xbe-contrail-xrefs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  xrefs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install disassembler
+        run: python -m pip install --disable-pip-version-check capstone
+      - name: Analyze NOS / emitter / velocity cross-references
+        run: python tools/xbe_contrail_xrefs.py default.xbe > xbe-contrail-xrefs.txt
+      - uses: actions/upload-artifact@v5
+        with:
+          name: xbe-contrail-static-xrefs
+          path: xbe-contrail-xrefs.txt
+          if-no-files-found: error
+          retention-days: 7
