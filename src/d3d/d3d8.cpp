@@ -1432,6 +1432,7 @@ HLE_STDCALL(D3DDevice_SetPixelShaderConstant, 3) {
 HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
+    LogParticleScopeDraw("VERTEX", a[0], a[2], g_state.streams[0].stride, nullptr, nullptr);
     CountTarget(false, a[2]);
     if (g_trace && (g_state.vs_handle & 1) && g_state.vs && g_state.streams[0].vb && a[2] <= 8) {
         static int dumps = 0;
@@ -1465,6 +1466,8 @@ bool CaptureNativeWhiteStreaks(uint32_t prim, const void* vertices, uint32_t cou
                                uint32_t stride, game::lightning_aura::ParticleLine* output,
                                std::size_t capacity, std::size_t& captured);
 bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, std::size_t line_count);
+void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint32_t stride,
+                          const uint16_t* indices, const void* vertices);
 }  // namespace
 
 bool CaptureIndexedNativeWhiteStreaks(const uint8_t* indices, uint32_t index_count,
@@ -1530,6 +1533,46 @@ bool MeasureIndexedRawXYZ(const uint8_t* indices, uint32_t index_count,
 
 // Diagnostic probe for identifying the two rear lamp vertices from live Xbox draw data.
 // It is intentionally observational: no guessed anchors, transform edits, or render-state changes.
+void LogParticleScopeDraw(const char* path, uint32_t prim, uint32_t count, uint32_t stride,
+                          const uint16_t* indices, const void* vertices) {
+    if (!game::lightning_aura::NativeParticleDrawScopeActive()) return;
+    static uint32_t reports = 0;
+    if (reports++ >= 512) return;
+    const auto& world = g_state.transforms[256];
+    std::string inputs;
+    if (g_state.vs) {
+        for (int r = 0; r < 16; ++r) {
+            const auto& input = g_state.vs->inputs[r];
+            if (input.stream >= 0)
+                inputs += " v" + std::to_string(r) + "@" + std::to_string(input.offset) + "t" +
+                          std::to_string(input.type);
+        }
+    }
+    LOGI("lightning-xbe-particle-draw: n=%u path=%s prim=%u count=%u stride=%u fvf=%08X ps=%08X "
+         "vb=%08X baseVertex=%u tex0=%08X tex1=%08X worldT=(%.4f,%.4f,%.4f) inputs=%s",
+         reports, path, prim, count, stride, g_state.vs_handle, g_state.ps ? g_state.ps->handle : 0,
+         g_state.streams[0].vb, g_state.base_vertex, g_state.textures[0], g_state.textures[1],
+         world[12], world[13], world[14], inputs.c_str());
+    if (indices) {
+        LOGI("lightning-xbe-particle-draw: indices=%u,%u,%u,%u,%u,%u,%u,%u",
+             indices[0], count > 1 ? indices[1] : 0, count > 2 ? indices[2] : 0,
+             count > 3 ? indices[3] : 0, count > 4 ? indices[4] : 0,
+             count > 5 ? indices[5] : 0, count > 6 ? indices[6] : 0,
+             count > 7 ? indices[7] : 0);
+    }
+    if (vertices && stride >= 12) {
+        const auto* bytes = static_cast<const uint8_t*>(vertices);
+        for (uint32_t v = 0; v < std::min(count, 4u); ++v) {
+            float xyz[3]{};
+            uint32_t word3 = 0;
+            std::memcpy(xyz, bytes + std::size_t(v) * stride, sizeof(xyz));
+            if (stride >= 16) std::memcpy(&word3, bytes + std::size_t(v) * stride + 12, 4);
+            LOGI("lightning-xbe-particle-draw: v%u=(%.5f,%.5f,%.5f) word3=%08X",
+                 v, xyz[0], xyz[1], xyz[2], word3);
+        }
+    }
+}
+
 void LogIndexedLampProbe(const uint8_t* indices, uint32_t index_count) {
     static uint32_t reports = 0;
     if (!indices || reports++ >= 4096) return;
@@ -1573,6 +1616,8 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+    LogParticleScopeDraw("INDEXED", a[0], a[1], g_state.streams[0].stride,
+                         reinterpret_cast<const uint16_t*>(indices), nullptr);
     std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
     std::size_t native_streak_count = 0;
     LogIndexedLampProbe(indices, a[1]);
@@ -1844,6 +1889,7 @@ bool DrawLightningParticleMask(const game::lightning_aura::ParticleLine* lines, 
 void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
     if (!g_backend || !count || !stride) return;
     SyncDeferred();
+    LogParticleScopeDraw("UP", prim, count, stride, nullptr, vertices);
     auto stream = g_state.streams[0];
     // Discovery must not depend on the speed publisher: until the native streak source is
     // identified, gating this census on aura_speed would deadlock discovery at the default 0 km/h.
@@ -2218,6 +2264,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVerticesUP, 5) {
     uint32_t vertices = uint32_t(*std::max_element(indices, indices + count)) + 1;
     SyncDeferred();
     const auto* source_vertices = static_cast<const uint8_t*>(HostPtr(a[3]));
+    LogParticleScopeDraw("INDEXED_UP", prim, count, stride, indices, source_vertices);
     std::array<game::lightning_aura::ParticleLine, 128> native_streaks{};
     std::size_t native_streak_count = 0;
     bool gathered_ok = count <= 256 && (count % 2 == 0);
