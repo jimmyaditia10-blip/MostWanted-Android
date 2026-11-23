@@ -48,7 +48,10 @@ def main() -> int:
             raise SystemExit("Pustaka payload incomplete: " + ", ".join(missing))
         dex = source.read("classes.dex")
         native = source.read("lib/arm64-v8a/libmain.so")
-        if b"com.racas.mostwanted" not in source.read("AndroidManifest.xml"):
+        manifest = source.read("AndroidManifest.xml")
+        package_ascii = b"com.racas.mostwanted"
+        package_utf16 = "com.racas.mostwanted".encode("utf-16le")
+        if package_ascii not in manifest and package_utf16 not in manifest:
             raise SystemExit("Pustaka package id mismatch")
         for marker in DEX_MARKERS:
             if marker not in dex:
