@@ -143,7 +143,7 @@ def main():
   add(f"\n  {label} requested=0x{va:08X} decoded=0x{chosen:08X} section={chosen_sec['name']}")
   for x in seq[:64]: add(f"    {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
  add("\nCONTROL-FLOW CALL CENSUS FOR EACH GAME / D3D ENTRY:")
- for start,label in sorted(KNOWN.items()):
+ for start,label in sorted(FLOW_TARGETS.items()):
   sec=next((s for s in sections if s["name"] in (".text","D3D","XGRPH") and s["va"]<=start<s["va"]+s["raw_size"]),None)
   if not sec: continue
   todo=[start]; seen=set(); direct=Counter(); indirect=[]; decoded=0
