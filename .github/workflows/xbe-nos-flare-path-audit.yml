@@ -1,0 +1,38 @@
+name: Xbox NOS Flare Path Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/nos-flare-xbe-path
+    paths:
+      - .github/workflows/xbe-nos-flare-path-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: research/nos-flare-xbe-path
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install x86 disassembler
+        run: python -m pip install --disable-pip-version-check capstone
+      - name: Disassemble Xbox car-render and D3D paths
+        run: |
+          test -s default.xbe
+          python tools/xbe_rendering_census.py
+          grep -n -E "CarRenderInfo::Render|car render|D3DDevice_Draw|light|flare|CarRenderConn|particle" xbe-rendering-report.txt > xbe-nos-flare-index.txt || true
+      - uses: actions/upload-artifact@v5
+        with:
+          name: xbox-nos-flare-path-audit
+          path: |
+            xbe-rendering-report.txt
+            xbe-nos-flare-index.txt
+          if-no-files-found: error
+          retention-days: 14
