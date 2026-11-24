@@ -23,6 +23,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-nos-lightning-patch:
+    name: Validate exact Pustaka NOS shader patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout patch sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Download and verify exact Pustaka reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output MostWanted-1.4.0.apk "$PUSTAKA_APK_URL"
+          echo "$PUSTAKA_APK_SHA256  MostWanted-1.4.0.apk" | sha256sum --check -
+        env:
+          PUSTAKA_APK_URL: https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk
+          PUSTAKA_APK_SHA256: 222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc
+      - name: Patch shader and verify complete source APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_pustaka_nos_shader.py MostWanted-1.4.0.apk research/nosfx_lightning_shader.hlsl MostWanted-1.4.0-NOS-Lightning.apk
+          python3 tools/verify_pustaka_payload.py MostWanted-1.4.0-NOS-Lightning.apk MostWanted-1.4.0-NOS-Lightning.apk
+          sha256sum MostWanted-1.4.0-NOS-Lightning.apk | tee PATCHED-APK-SHA256.txt
+      - name: Upload patched Pustaka APK for independent inspection
+        uses: actions/upload-artifact@v5
+        with:
+          name: Pustaka-NOS-Lightning-Patch-Test
+          path: |
+            MostWanted-1.4.0-NOS-Lightning.apk
+            MostWanted-1.4.0-NOS-Lightning.apk.patch-report.txt
+            PATCHED-APK-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14
+
   build:
     name: Build base APK with complete Pustaka runtime
     runs-on: windows-2025
