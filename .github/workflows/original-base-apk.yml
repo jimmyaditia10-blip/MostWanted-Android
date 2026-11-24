@@ -103,11 +103,15 @@ jobs:
         run: |
           setlocal
           set "BASE=app\\build\\outputs\\apk\\release\\app-release.apk"
+          set "PATCHED=%RUNNER_TEMP%\\MostWanted-1.4.0-NOS-Lightning.apk"
           set "MERGED=%RUNNER_TEMP%\\original-base-integrated-unsigned.apk"
           set "ALIGNED=%RUNNER_TEMP%\\original-base-integrated-aligned.apk"
           set "SIGNED=%RUNNER_TEMP%\\original-base-integrated-signed.apk"
           if not exist "%BASE%" exit /b 1
-          python tools\\integrate_pustaka_apk.py "%BASE%" "%PUSTAKA_APK%" "%MERGED%"
+          python tools\\patch_pustaka_nos_shader.py "%PUSTAKA_APK%" "research\\nosfx_lightning_shader.hlsl" "%PATCHED%"
+          if errorlevel 1 exit /b 1
+          copy /Y "%PATCHED%.patch-report.txt" "NOS-LIGHTNING-PATCH-REPORT.txt" >nul
+          python tools\\integrate_pustaka_apk.py "%BASE%" "%PATCHED%" "%MERGED%"
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -f -P 16 4 "%MERGED%" "%ALIGNED%"
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -c -P 16 4 "%ALIGNED%"
           if not exist "%USERPROFILE%\\.android\\debug.keystore" (
@@ -117,10 +121,10 @@ jobs:
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\apksigner.bat" sign --ks "%USERPROFILE%\\.android\\debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "%SIGNED%" "%ALIGNED%"
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\apksigner.bat" verify --verbose "%SIGNED%"
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -c -P 16 4 "%SIGNED%"
-          python tools\\verify_pustaka_payload.py "%PUSTAKA_APK%" "%SIGNED%"
+          python tools\\verify_pustaka_payload.py "%PATCHED%" "%SIGNED%"
           if errorlevel 1 exit /b 1
           copy /Y "%SIGNED%" "%BASE%" >nul
-          python tools\\verify_pustaka_payload.py "%PUSTAKA_APK%" "%BASE%"
+          python tools\\verify_pustaka_payload.py "%PATCHED%" "%BASE%"
           if errorlevel 1 exit /b 1
           endlocal
 
@@ -141,5 +145,6 @@ jobs:
           path: |
             RanggaCasper-Original-Base.apk
             SHA256SUMS.txt
+            NOS-LIGHTNING-PATCH-REPORT.txt
           if-no-files-found: error
           retention-days: 30
