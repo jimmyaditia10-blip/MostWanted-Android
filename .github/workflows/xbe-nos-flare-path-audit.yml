@@ -1,6 +1,7 @@
 name: Xbox NOS Flare Path Audit
 
-# This workflow only reads the checked-in Xbox XBE; it does not patch game code.
+# Read-only XBE audit: no game code or runtime assets are patched.
+# Hashes and call sites are emitted for reverse-engineering review.
 on:
   workflow_dispatch:
   push:
