@@ -12,8 +12,7 @@ EXPECTED_SHADER_VA=0x53CF5E
 EXPECTED_KSHADER_OBJECT=0x1D5C0A0
 
 def sha(b): return hashlib.sha256(b).hexdigest()
-def run(*args):
-    return subprocess.run(args,check=True,text=True,capture_output=True).stdout
+def run(*args): return subprocess.run(args,check=True,text=True,capture_output=True).stdout
 
 apk=APK.read_bytes()
 if sha(apk)!=EXPECTED_APK: raise SystemExit("Pustaka APK SHA-256 mismatch")
@@ -23,12 +22,12 @@ with zipfile.ZipFile(APK) as z:
     so=z.read("lib/arm64-v8a/libmain.so")
 if sha(so)!=EXPECTED_SO: raise SystemExit("Pustaka libmain.so SHA-256 mismatch")
 
+OUT.mkdir(parents=True,exist_ok=True)
 tmp=OUT/"work"; tmp.mkdir(parents=True,exist_ok=True)
 so_path=tmp/"libmain.so"; so_path.write_bytes(so)
-symbols=run("readelf","-Ws",str(so_path))
+symbols=run("bash","-lc",f"readelf -Ws '{so_path}' | c++filt")
 for name in ["d3d::DrawNosTrail","streetlight::UpdateNosTrail","streetlight::BuildNosTrail","nosfx::History::Update","nosfx::History::Mesh","nosfx::kShader"]:
-    if name not in run("readelf","-Ws",str(so_path),"--wide") and name not in symbols:
-        raise SystemExit(f"Missing required Pustaka symbol: {name}")
+    if name not in symbols: raise SystemExit(f"Missing required Pustaka symbol: {name}")
 relocs=run("readelf","-rW",str(so_path))
 line=next((x for x in relocs.splitlines() if re.search(rf"^\\s*{EXPECTED_KSHADER_OBJECT:016x}\\s",x)),None)
 if not line or not re.search(rf"R_AARCH64_RELATIVE\\s+{EXPECTED_SHADER_VA:x}$",line):
@@ -41,7 +40,7 @@ if len(old)!=EXPECTED_SHADER_LEN or b"coreLight" not in old or b"glowLight" not 
 candidate=CANDIDATE.read_bytes()
 if candidate.endswith(b"\\n"): candidate=candidate[:-1]
 if not candidate or len(candidate)>len(old): raise SystemExit("Candidate shader is empty or exceeds the in-place source slot")
-for marker in [b"ATTR0",b"ATTR1",b"SV_Position",b"TEXCOORD0",b"SV_Target",b"float4 vs(",b"float4 ps("]:
+for marker in [b"ATTR0",b"ATTR1",b"SV_Position",b"TEXCOORD0",b"SV_Target",b"Output vs(",b"float4 ps("]:
     if marker not in candidate: raise SystemExit(f"Candidate missing interface marker {marker!r}")
 if any(x in candidate for x in [b"Texture2D",b"SamplerState",b"register(t",b"register(s"]):
     raise SystemExit("Candidate unexpectedly adds texture/sampler descriptors")
@@ -68,7 +67,7 @@ report={
  "patch_range_only":True,"other_libmain_bytes_unchanged":True,
  "shader_sources":adapted,
  "required_runtime_symbols":["d3d::DrawNosTrail","streetlight::UpdateNosTrail","streetlight::BuildNosTrail","nosfx::History::Update","nosfx::History::Mesh","nosfx::kShader"],
- "descriptor_policy":"no new Texture2D/SamplerState; preserves existing no-descriptor NOS shader pipeline"
+ "descriptor_policy":"no new Texture2D/SamplerState; preserves the existing descriptor-free NOS shader interface"
 }
 (OUT/"patch-validation.json").write_text(json.dumps(report,indent=2)+"\\n")
 print(json.dumps(report,indent=2))
