@@ -74,39 +74,58 @@ jobs:
           cp "$RUNNER_TEMP/MostWanted-1.4.0-NOS-Lightning.apk.patch-report.txt" NOS-LIGHTNING-PATCH-REPORT.txt
           echo "PATCHED_PUSTAKA=$RUNNER_TEMP/MostWanted-1.4.0-NOS-Lightning.apk" >> "$GITHUB_ENV"
       - name: Integrate, align, sign and verify
-        shell: cmd
+        shell: pwsh
         run: |
-          setlocal
-          set "BASE=app\build\outputs\apk\release\app-release.apk"
-          set "MERGED=%RUNNER_TEMP%\nos-lightning-integrated-unsigned.apk"
-          set "ALIGNED=%RUNNER_TEMP%\nos-lightning-integrated-aligned.apk"
-          set "SIGNED=%RUNNER_TEMP%\nos-lightning-integrated-signed.apk"
-          python tools\integrate_pustaka_apk.py "%BASE%" "%PATCHED_PUSTAKA%" "%MERGED%"
-          if errorlevel 1 exit /b 1
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\zipalign.exe" -f -P 16 4 "%MERGED%" "%ALIGNED%"
-          if errorlevel 1 exit /b 1
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\zipalign.exe" -c -P 16 4 "%ALIGNED%"
-          if errorlevel 1 exit /b 1
-          if not exist "%USERPROFILE%\.android" mkdir "%USERPROFILE%\.android"
-          if not exist "%USERPROFILE%\.android\debug.keystore" "%JAVA_HOME%\bin\keytool.exe" -genkeypair -keystore "%USERPROFILE%\.android\debug.keystore" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\apksigner.bat" sign --ks "%USERPROFILE%\.android\debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "%SIGNED%" "%ALIGNED%"
-          if errorlevel 1 exit /b 1
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\apksigner.bat" verify --verbose "%SIGNED%"
-          if errorlevel 1 exit /b 1
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\zipalign.exe" -c -P 16 4 "%SIGNED%"
-          if errorlevel 1 exit /b 1
-          python tools\verify_pustaka_payload.py "%PATCHED_PUSTAKA%" "%SIGNED%"
-          if errorlevel 1 exit /b 1
-          copy /Y "%SIGNED%" "%BASE%" >nul
-          python tools\verify_pustaka_payload.py "%PATCHED_PUSTAKA%" "%BASE%"
-          if errorlevel 1 exit /b 1
-          endlocal
+          $ErrorActionPreference = "Stop"
+          $base = Join-Path $PWD "app\build\outputs\apk\release\app-release.apk"
+          $patched = $env:PATCHED_PUSTAKA
+          $temp = $env:RUNNER_TEMP
+          $merged = Join-Path $temp "nos-lightning-integrated-unsigned.apk"
+          $aligned = Join-Path $temp "nos-lightning-integrated-aligned.apk"
+          $signed = Join-Path $temp "nos-lightning-integrated-signed.apk"
+          $zipalign = Join-Path $env:ANDROID_HOME "build-tools\$env:BUILD_TOOLS_VERSION\zipalign.exe"
+          $apksigner = Join-Path $env:ANDROID_HOME "build-tools\$env:BUILD_TOOLS_VERSION\apksigner.bat"
+          $keystore = Join-Path $env:USERPROFILE ".android\debug.keystore"
+          & python "tools\integrate_pustaka_apk.py" $base $patched $merged
+          if ($LASTEXITCODE -ne 0) { throw "Pustaka integration failed" }
+          & $zipalign -f -P 16 4 $merged $aligned
+          if ($LASTEXITCODE -ne 0) { throw "zipalign failed" }
+          & $zipalign -c -P 16 4 $aligned
+          if ($LASTEXITCODE -ne 0) { throw "aligned APK check failed" }
+          New-Item -ItemType Directory -Force (Split-Path $keystore) | Out-Null
+          if (!(Test-Path $keystore)) {
+            & "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -keystore $keystore -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+            if ($LASTEXITCODE -ne 0) { throw "debug keystore generation failed" }
+          }
+          & $apksigner sign --ks $keystore --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out $signed $aligned
+          if ($LASTEXITCODE -ne 0) { throw "APK signing failed" }
+          & $apksigner verify --verbose $signed
+          if ($LASTEXITCODE -ne 0) { throw "APK signature verification failed" }
+          & $zipalign -c -P 16 4 $signed
+          if ($LASTEXITCODE -ne 0) { throw "signed APK alignment check failed" }
+          & python "tools\verify_pustaka_payload.py" $patched $signed
+          if ($LASTEXITCODE -ne 0) { throw "signed APK lost Pustaka payload" }
+          Copy-Item -Force $signed $base
+          $baseHash = (Get-FileHash -Algorithm SHA256 $base).Hash.ToLowerInvariant()
+          if ($baseHash -eq $env:BASE_APK_SHA256) { throw "Final APK still matches the unintegrated base APK" }
+          & python "tools\verify_pustaka_payload.py" $patched $base
+          if ($LASTEXITCODE -ne 0) { throw "final output copy lost Pustaka payload" }
+          Write-Host "FINAL OUTPUT SHA-256: $baseHash"
+          Write-Host "FINAL OUTPUT BYTES: $((Get-Item $base).Length)"
       - name: Publish APK and report
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          cp app/build/outputs/apk/release/app-release.apk MostWanted-1.4.0-NOS-Lightning.apk
-          sha256sum MostWanted-1.4.0-NOS-Lightning.apk | tee SHA256SUMS.txt
+          $ErrorActionPreference = "Stop"
+          $base = Join-Path $PWD "app\build\outputs\apk\release\app-release.apk"
+          $dest = Join-Path $PWD "MostWanted-1.4.0-NOS-Lightning.apk"
+          Copy-Item -Force $base $dest
+          $hash = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLowerInvariant()
+          if ($hash -eq $env:BASE_APK_SHA256) { throw "Published APK is still the original base APK" }
+          & python "tools\verify_pustaka_payload.py" $env:PATCHED_PUSTAKA $dest
+          if ($LASTEXITCODE -ne 0) { throw "Published APK failed final Pustaka verification" }
+          "$hash *MostWanted-1.4.0-NOS-Lightning.apk" | Set-Content -Encoding ascii SHA256SUMS.txt
+          Write-Host "PUBLISHED APK SHA-256: $hash"
+          Write-Host "PUBLISHED APK BYTES: $((Get-Item $dest).Length)"
       - uses: actions/upload-artifact@v5
         with:
           name: MostWanted-1.4.0-NOS-Lightning-Verified
