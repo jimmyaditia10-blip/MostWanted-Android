@@ -70,3 +70,15 @@ Do not call the implementation complete until:
 3. The final APK preserves every Pustaka DEX/asset entry except the intended native shader bytes, passes ZIP alignment and APK signature verification.
 4. The user is warned about the signing mismatch before installation.
 5. In-game screenshot confirms yellow lightning replaces the red ribbon and other effects remain unchanged.
+
+## Build 120 integration dependency
+
+The Build 120 artifact `MostWanted-dev-d778800.apk` (APK SHA-256 `f10fb6dc436e1f7cb75d976500889c32a334ad00a32ed0225834c83fa827d781`) has `libmain.so` SHA-256 `6e99d3033f1280ee5570a3aa0971701d4d46103975d873c680e936e24388c383`. Its native library does not contain `nosfx::kShader`, `DrawNosTrail`, `UpdateNosTrail`, `History::Mesh` or the red-trail shader markers. The shader patch cannot be applied directly to the unintegrated Build 120 library.
+
+Therefore the safe order is:
+1. Integrate the tested Pustaka runtime payload into the Build 120 APK.
+2. Verify the final post-sign/post-copy APK still contains the exact Pustaka DEX/native/assets payload.
+3. Apply the in-place `nosfx::kShader` pixel-shader patch to that verified integrated library.
+4. Re-run APK alignment, signature, entry-count and payload checks.
+
+The previous Build 7 artifact was inspected directly and did not contain the Pustaka runtime despite the intermediate integration log. The current `fix/full-pustaka-loader-parity` workflow now includes a final payload verifier after signing and copying; its current run has not completed yet. Do not treat Build 7 as a valid integrated base.
