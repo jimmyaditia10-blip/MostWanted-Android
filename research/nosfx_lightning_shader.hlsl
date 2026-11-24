@@ -1,4 +1,5 @@
 // validated with the Pustaka runtime's glslang 16.0.0 compiler
+// exact version build uses all CMake default binary targets
 struct Input {
     float4 v0 : ATTR0;
     float4 v1 : ATTR1;
