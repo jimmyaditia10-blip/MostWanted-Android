@@ -32,6 +32,19 @@ jobs:
           python tools/xbe_rendering_census.py
           python tools/xbe_contrail_xrefs.py default.xbe > xbe-contrail-xrefs.txt
           grep -n -E "CarRenderInfo::Render|car render|D3DDevice_Draw|light|flare|CarRenderConn|particle" xbe-rendering-report.txt > xbe-nos-flare-index.txt || true
+          curl -L --fail --silent --show-error -o /tmp/pustaka.apk "https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk"
+          echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  /tmp/pustaka.apk" | sha256sum -c -
+          unzip -p /tmp/pustaka.apk lib/arm64-v8a/libmain.so > /tmp/pustaka-libmain.so
+          unzip -p /tmp/pustaka.apk classes.dex > /tmp/pustaka-classes.dex
+          {
+            echo "Pustaka APK SHA256 verified"
+            echo "=== APK entries ==="
+            unzip -Z1 /tmp/pustaka.apk | grep -Ei 'texture|mod|dds|pack|manifest|libmain|classes' || true
+            echo "=== Native texture/render strings ==="
+            strings -a /tmp/pustaka-libmain.so | grep -Ei 'TextureInfo|GetTextureInfo|TexturePack|TextureMapping|TextureManager|TextureCache|texturemappings|\.dds|D3DDevice_SetTexture|eRenderLightFlare|DrawNosTrail|nosfx' | sort -u || true
+            echo "=== DEX texture/mod-loader strings ==="
+            strings -a /tmp/pustaka-classes.dex | grep -Ei 'TextureInfo|GetTextureInfo|TexturePack|TextureMapping|TextureManager|TextureCache|texturemappings|\.dds|ModTransaction|CarScript|ModsActivity' | sort -u || true
+          } > pustaka-texture-api.txt
       - uses: actions/upload-artifact@v5
         with:
           name: xbox-nos-flare-path-audit
@@ -39,5 +52,6 @@ jobs:
             xbe-rendering-report.txt
             xbe-nos-flare-index.txt
             xbe-contrail-xrefs.txt
+            pustaka-texture-api.txt
           if-no-files-found: error
           retention-days: 14
