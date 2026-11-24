@@ -123,5 +123,48 @@ def main():
                 print(f"{name} {hx(addr)} size={size} section={secname} bytes={blob[:256].hex(' ')}")
                 print(blob.decode("utf-8", "replace"))
 
+
+        print("\\n=== FULL NOSFX SHADER SOURCE ===")
+        for secname, va, off, size, data in sections:
+            if "rodata" not in secname.lower() and "data" not in secname.lower():
+                continue
+            for needle in (b"coreLight", b"glowLight"):
+                start = 0
+                while True:
+                    pos = data.find(needle, start)
+                    if pos < 0:
+                        break
+                    lo = data.rfind(b"\\0", 0, pos) + 1
+                    hi = data.find(b"\\0", pos)
+                    if hi < 0:
+                        hi = len(data)
+                    blob = data[lo:hi]
+                    if b"coreLight" in blob or b"glowLight" in blob:
+                        print(f"\\n--- {secname} VA={hx(va+lo)} bytes={len(blob)} ---")
+                        print(blob.decode("utf-8", "replace"))
+                    start = pos + len(needle)
+
+        print("\\n=== NOSFX / STREETLIGHT / RENDER RELATED SYMBOLS ===")
+        shown = 0
+        for sym in symtab.iter_symbols():
+            name = sym.name or ""
+            low = name.lower()
+            if any(k in low for k in ("nosfx", "streetlight", "drawnostrail", "texturepack", "shader", "trail")):
+                print(f"{hx(int(sym['st_value']))} size=0x{int(sym['st_size']):X} {name}")
+                shown += 1
+                if shown >= 240:
+                    print("... symbol list capped at 240")
+                    break
+
+        print("\\n=== DrawNosTrail FOLLOW-ON HELPER ===")
+        helper = 0x0000000000910AD8
+        sec = section_for(helper)
+        if sec:
+            secname, va, off, secsize, data = sec
+            length = min(0x600, va + secsize - helper)
+            print(f"helper={hx(helper)} section={secname} bytes={length}")
+            for ins in md.disasm(data[helper-va:helper-va+length], helper):
+                print(f"{ins.address:016X}: {ins.mnemonic:8s} {ins.op_str}")
+
 if __name__ == "__main__":
     main()
