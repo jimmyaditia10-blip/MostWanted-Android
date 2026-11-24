@@ -101,7 +101,11 @@ jobs:
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\apksigner.bat" sign --ks "%USERPROFILE%\\.android\\debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "%SIGNED%" "%ALIGNED%"
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\apksigner.bat" verify --verbose "%SIGNED%"
           "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -c -P 16 4 "%SIGNED%"
+          python tools\\verify_pustaka_payload.py "%PUSTAKA_APK%" "%SIGNED%"
+          if errorlevel 1 exit /b 1
           copy /Y "%SIGNED%" "%BASE%" >nul
+          python tools\\verify_pustaka_payload.py "%PUSTAKA_APK%" "%BASE%"
+          if errorlevel 1 exit /b 1
           endlocal
 
       - name: Verify and name integrated APK
