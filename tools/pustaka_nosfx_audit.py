@@ -240,7 +240,7 @@ def main():
                 if target_page not in pages:
                     continue
                 window = insns[i:min(i+8, len(insns))]
-                if not any(any(f"#{off:x}" in x.op_str for off in pages[target_page]) for x in window[1:]):
+                if not any(any(f"#0x{off:x}" in x.op_str for off in pages[target_page]) for x in window[1:]):
                     continue
                 print(f"\\n--- {secname} {hx(ins.address)} page={hx(target_page)} ---")
                 for x in window:
@@ -251,6 +251,29 @@ def main():
             name = sym.name or ""
             if any(k in name.lower() for k in ("kshader", "drawnostrail", "d3d", "renderer", "backend", "pixelshader")):
                 print(f"{hx(int(sym['st_value']))} size=0x{int(sym['st_size']):X} type={sym['st_info']['type']} {name}")
+
+
+        print("\\n=== RELOCATIONS FOR NOSFX GLOBALS ===")
+        interesting_offsets = {0x1D5C0A0, 0x1D610680, 0x1D610688, 0x1D450A48, 0x1D450A58}
+        for relsec in elf.iter_sections():
+            if not hasattr(relsec, "iter_relocations"):
+                continue
+            try:
+                linked = elf.get_section(relsec["sh_link"])
+            except Exception:
+                linked = None
+            for rel in relsec.iter_relocations():
+                roff = int(rel["r_offset"])
+                if roff in interesting_offsets or 0x1D5C000 <= roff < 0x1D5C100:
+                    symname = ""
+                    symidx = int(rel["r_info_sym"])
+                    if linked is not None and symidx:
+                        try:
+                            symname = linked.get_symbol(symidx).name
+                        except Exception:
+                            pass
+                    addend = int(rel["r_addend"]) if "r_addend" in rel.entry else 0
+                    print(f"{relsec.name} off={hx(roff)} type={rel['r_info_type']} addend={hx(addend)} sym={symname}")
 
 if __name__ == "__main__":
     main()
