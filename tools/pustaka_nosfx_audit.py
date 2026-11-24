@@ -18,6 +18,8 @@ TARGETS = (
     "kShader",
     "UpdateNosTrail",
     "BeginVehicleLights",
+    "IncludeBodyMarker",
+    "SeedSources",
     "CaptureDraw",
     "RelativeProjection",
     "DrawPanel",
@@ -48,7 +50,7 @@ def main():
         symbols = []
         for sym in symtab.iter_symbols():
             name = sym.name or ""
-            if "nosfx" in name.lower() or "drawnostrail" in name.lower():
+            if any(k in name.lower() for k in ("nosfx", "drawnostrail", "streetlight", "vehiclelighting", "vkshader")):
                 symbols.append((name, int(sym['st_value']), int(sym['st_size']),
                                 sym['st_info']['type'], sym['st_shndx']))
         symbols.sort(key=lambda x: (x[1], x[0]))
