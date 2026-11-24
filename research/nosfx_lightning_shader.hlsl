@@ -1,4 +1,4 @@
-struct Input { float4 v0 : ATTR0; float4 v1 : ATTR1; };
+struct Input {\n    float4 v0 : ATTR0;\n    float4 v1 : ATTR1;\n};
 struct Output { float4 pos : SV_Position; float4 effect : TEXCOORD0; };
 Output vs(Input i) { Output o; o.pos=i.v0; o.effect=i.v1; return o; }
 float4 ps(Output i) : SV_Target {
