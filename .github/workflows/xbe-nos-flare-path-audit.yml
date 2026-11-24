@@ -1,6 +1,6 @@
 name: Xbox NOS Flare Path Audit
 
-# This workflow only reads the checked-in, SHA-1-verified Xbox XBE.
+# This workflow only reads the checked-in Xbox XBE; it does not patch game code.
 on:
   workflow_dispatch:
   push:
@@ -8,6 +8,7 @@ on:
       - research/nos-flare-xbe-path
     paths:
       - .github/workflows/xbe-nos-flare-path-audit.yml
+      - tools/xbe_rendering_census.py
 
 permissions:
   contents: read
