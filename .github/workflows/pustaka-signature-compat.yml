@@ -1,0 +1,71 @@
+name: Compare Pustaka APK Debug Signing Key
+
+on:
+  push:
+    branches: ["research/pustaka-renderer-audit"]
+    paths:
+      - ".github/workflows/pustaka-signature-compat.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Android signing tools
+        shell: cmd
+        run: call "%ANDROID_HOME%\cmdline-tools\latest\bin\sdkmanager.bat" --install "build-tools;35.0.0"
+
+      - name: Download exact Pustaka APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output MostWanted-1.4.0.apk "https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk"
+          echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  MostWanted-1.4.0.apk" | sha256sum --check -
+
+      - name: Compare Pustaka signer with the Windows build debug key
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force audit | Out-Null
+          $apksigner = Join-Path $env:ANDROID_HOME "build-tools\35.0.0\apksigner.bat"
+          & $apksigner verify --verbose --print-certs MostWanted-1.4.0.apk | Tee-Object -FilePath audit\pustaka-signature.txt
+          $apkLine = Select-String -Path audit\pustaka-signature.txt -Pattern "certificate SHA-256 digest:"
+          if (-not $apkLine) { throw "Could not read Pustaka APK certificate fingerprint" }
+          $apkCert = ($apkLine.Line -replace ".*digest:\s*", "").Replace(":","").ToLowerInvariant()
+
+          $debugDir = Join-Path $env:USERPROFILE ".android"
+          New-Item -ItemType Directory -Force $debugDir | Out-Null
+          $debugKey = Join-Path $debugDir "debug.keystore"
+          if (-not (Test-Path $debugKey)) {
+            keytool -genkeypair -v -keystore $debugKey -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          }
+          keytool -list -v -keystore $debugKey -alias androiddebugkey -storepass android -keypass android | Tee-Object -FilePath audit\windows-debug-key.txt
+          $keyLine = Select-String -Path audit\windows-debug-key.txt -Pattern "SHA256:"
+          if (-not $keyLine) { throw "Could not read Windows debug-key fingerprint" }
+          $debugCert = ($keyLine.Line -replace ".*SHA256:\s*", "").Replace(":","").ToLowerInvariant()
+
+          "Pustaka SHA-256: $apkCert" | Out-File audit\signature-compatibility.txt
+          "Windows build debug SHA-256: $debugCert" | Add-Content audit\signature-compatibility.txt
+          if ($apkCert -eq $debugCert) {
+            "RESULT: MATCH — patched APK can update Pustaka without uninstalling." | Add-Content audit\signature-compatibility.txt
+          } else {
+            "RESULT: MISMATCH — patched APK signed by this build environment cannot update Pustaka; uninstall/reinstall or original signing key is required." | Add-Content audit\signature-compatibility.txt
+          }
+          Get-Content audit\signature-compatibility.txt
+
+      - name: Upload signature compatibility report
+        uses: actions/upload-artifact@v5
+        with:
+          name: pustaka-signature-compatibility
+          path: audit/
+          if-no-files-found: error
+          retention-days: 14
