@@ -53,7 +53,18 @@ if bytes(patched[EXPECTED_SHADER_VA:EXPECTED_SHADER_VA+len(candidate)])!=candida
 if patched[EXPECTED_SHADER_VA+len(candidate)]!=0: raise SystemExit("Missing candidate NUL terminator")
 
 patch_dir=OUT/"patch-prototype"; patch_dir.mkdir(parents=True,exist_ok=True)
-(patch_dir/"libmain.so").write_bytes(patched)
+patched_path=patch_dir/"libmain.so"
+patched_path.write_bytes(patched)
+patched_header=run("readelf","-h",str(patched_path))
+if "ELF64" not in patched_header or "AArch64" not in patched_header:
+    raise SystemExit("Patched library is no longer a valid ELF64 AArch64 object")
+patched_symbols=run("bash","-lc",f"readelf -Ws '{patched_path}' | c++filt")
+for name in ["d3d::DrawNosTrail","streetlight::UpdateNosTrail","streetlight::BuildNosTrail","nosfx::History::Update","nosfx::History::Mesh","nosfx::kShader"]:
+    if name not in patched_symbols: raise SystemExit(f"Patched library lost required runtime symbol: {name}")
+patched_relocs=run("readelf","-rW",str(patched_path))
+patched_fields=next((x.split() for x in patched_relocs.splitlines() if x.split() and x.split()[0].lower()==f"{EXPECTED_KSHADER_OBJECT:016x}"),None)
+if not patched_fields or patched_fields[-1].lower()!=f"{EXPECTED_SHADER_VA:x}":
+    raise SystemExit("Patched library changed nosfx::kShader relocation")
 adapted=[]
 for label,source in [("original",old),("candidate",candidate)]:
     text=source.decode("utf-8")
@@ -64,7 +75,7 @@ report={
  "apk_sha256":sha(apk),"libmain_sha256":sha(so),"libmain_patched_sha256":sha(bytes(patched)),
  "shader_source_va":hex(EXPECTED_SHADER_VA),"shader_source_length_original":len(old),
  "shader_source_length_candidate":len(candidate),"padding_bytes":len(old)-len(candidate),
- "patch_range_only":True,"other_libmain_bytes_unchanged":True,
+ "patch_range_only":True,"other_libmain_bytes_unchanged":True,"patched_elf_readelf_ok":True,
  "shader_sources":adapted,
  "required_runtime_symbols":["d3d::DrawNosTrail","streetlight::UpdateNosTrail","streetlight::BuildNosTrail","nosfx::History::Update","nosfx::History::Mesh","nosfx::kShader"],
  "descriptor_policy":"no new Texture2D/SamplerState; preserves the existing descriptor-free NOS shader interface"
