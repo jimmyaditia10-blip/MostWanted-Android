@@ -252,11 +252,12 @@ def main():
   seq=list(md.disasm(b[chosen_off:chosen_off+0x300],chosen))
   add(f"\n  {label} requested=0x{va:08X} decoded=0x{chosen:08X} section={chosen_sec['name']}")
   for x in seq[:64]: add(f"    {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
- add("\nCONTROL-FLOW CALL CENSUS FOR EACH GAME / D3D ENTRY:")
+ add("\\nCONTROL-FLOW CALL CENSUS FOR EACH GAME / D3D ENTRY:")
+ function_dumps={}
  for start,label in sorted(FLOW_TARGETS.items()):
   sec=next((s for s in sections if s["name"] in (".text","D3D","XGRPH") and s["va"]<=start<s["va"]+s["raw_size"]),None)
   if not sec: continue
-  todo=[start]; seen=set(); direct=Counter(); indirect=[]; decoded=0
+  todo=[start]; seen=set(); direct=Counter(); indirect=[]; decoded=0; function_ins=[]
   md=Cs(CS_ARCH_X86,CS_MODE_32); md.detail=True
   while todo and decoded<10000:
    pc=todo.pop()
@@ -264,7 +265,7 @@ def main():
     seen.add(pc); off=sec["raw"]+(pc-sec["va"])
     one=next(md.disasm(b[off:off+15],pc,count=1),None)
     if one is None: break
-    decoded+=1
+    decoded+=1; function_ins.append(one)
     if one.mnemonic=="call" and one.operands:
      op=one.operands[0]
      if op.type==x86_const.X86_OP_IMM: direct[op.imm&0xFFFFFFFF]+=1
@@ -284,6 +285,14 @@ def main():
   for dest,n in direct.most_common(45):
    add(f"    call {n:3d}x -> 0x{dest:08X} {KNOWN.get(dest,'')}")
   for item in indirect[:35]: add("    indirect "+item)
+  if start in (0x00257E70,0x002579E0,0x00257B60,0x0025CC70):
+   function_dumps[start]=sorted(function_ins,key=lambda ins:ins.address)
+ add("\\nFULL CONTROL-FLOW DISASSEMBLY: VEHICLE RENDER / NOS CANDIDATES")
+ for start in (0x00257E70,0x002579E0,0x00257B60,0x0025CC70):
+  if start not in function_dumps: continue
+  add(f"\\n  FUNCTION 0x{start:08X} instructions={len(function_dumps[start])}")
+  for ins in function_dumps[start]:
+   add(f"    {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
  add("\nTOP DIRECT CALL TARGETS IN GAME .text (frequency only; not symbol names):")
  textsec=next((s for s in sections if s["name"]==".text"),None)
  seq=[x for sec,x in all_instructions if sec==".text"]
