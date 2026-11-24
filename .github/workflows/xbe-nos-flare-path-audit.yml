@@ -1,7 +1,7 @@
 name: Xbox NOS Flare Path Audit
 
 # Read-only XBE audit: no game code or runtime assets are patched.
-# Includes flare material selection and the D3D texture submission chain.
+# Includes TextureInfo lookup, D3D binding, and flare draw call chain.
 on:
   workflow_dispatch:
   push:
