@@ -166,6 +166,34 @@ def main():
   if not hits: continue
   add(f"\n  {label} @ 0x{va:08X}: {len(hits)} refs")
   for sec,x in hits[:50]: add(f"    [{sec}] {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
+ # Resolve the brake-light/NOS attribute names through the XBE's bStringHash
+ # convention (h = h * 33 + byte, seed 0xFFFFFFFF), then locate code immediates.
+ add("\\nBRAKE-LIGHT / NOS ATTRIBUTE HASH XREFS:")
+ attr_names=("BRAKELIGHT","LIGHT_BRAKELIGHTS","LIGHT_RBRAKE","LIGHT_LBRAKE",
+             "CARFX_NOS_BLOWOFF","BRAKELIGHT_CENTRE","BRAKELIGHT_RIGHT",
+             "BRAKELIGHT_LEFT","REAR_BRAKE","RIGHT_BRAKELIGHT","LEFT_BRAKELIGHT")
+ for attr in attr_names:
+  hv=0xFFFFFFFF
+  for ch in attr.encode("ascii"): hv=(hv*33+ch)&0xFFFFFFFF
+  refs=[]
+  for sec,x in all_instructions:
+   if any(op.type==x86_const.X86_OP_IMM and (op.imm&0xFFFFFFFF)==hv for op in x.operands):
+    refs.append((sec,x))
+  add(f"\\n  {attr} hash=0x{hv:08X}: {len(refs)} immediate refs")
+  for sec,x in refs[:80]:
+   add(f"    [{sec}] {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
+   seq=[ins for sec2,ins in all_instructions if sec2==sec and x.address-12<=ins.address<=x.address+16]
+   for ins in seq: add(f"      {ins.address:08X}: {ins.mnemonic:8s} {ins.op_str}")
+ # Also locate literal pointers to the actual XBE string-table entries.
+ add("\\nRAW POINTER XREFS TO BRAKE-LIGHT / NOS STRINGS:")
+ for va,val in strings:
+  if not any(k in val.upper() for k in ("BRAKE","NOS","WIND","TRAIL")): continue
+  needle=struct.pack("<I",va); hits=[]; start=0
+  while True:
+   off=b.find(needle,start)
+   if off<0: break
+   hits.append(off); start=off+1
+  if hits: add(f"  {val} VA=0x{va:08X}: "+", ".join(f"file+0x{o:X}" for o in hits[:32]))
  add("\nDIRECT CALLS TO KNOWN RENDER FUNCTIONS:")
  for sec,x in all_instructions:
   if x.mnemonic=="call" and x.operands and x.operands[0].type==x86_const.X86_OP_IMM:
