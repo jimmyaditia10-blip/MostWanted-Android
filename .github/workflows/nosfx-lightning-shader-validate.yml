@@ -92,6 +92,20 @@ jobs:
             spirv-dis "audit/spirv/${shader}-ps.spv" > "audit/spirv/${shader}-ps.spvasm"
           done
 
+      - name: Confirm unchanged vertex shader and pixel interfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp audit/spirv/original-vs.spv audit/spirv/candidate-vs.spv
+          for shader in original candidate; do
+            grep -E 'OpDecorate .*Location|OpDecorate .*BuiltIn' "audit/spirv/${shader}-ps.spvasm" | sed -E 's/.*Location ([0-9]+).*/Location \\1/; s/.*BuiltIn ([A-Za-z]+).*/BuiltIn \\1/' | sort > "audit/spirv/${shader}-interface.txt"
+          done
+          diff -u audit/spirv/original-interface.txt audit/spirv/candidate-interface.txt
+          if cmp -s audit/spirv/original-ps.spv audit/spirv/candidate-ps.spv; then
+            echo "Pixel shader did not change"
+            exit 1
+          fi
+
       - name: Confirm the candidate adds no texture descriptors
         shell: bash
         run: |
