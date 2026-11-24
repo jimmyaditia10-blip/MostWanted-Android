@@ -114,6 +114,8 @@ uint32_t TargetData(uint32_t target) {
 }
 
 void ApplyGraphicsSwitches() {
+    // Reset the per-frame weather flag; the precipitation pass sets it again when rain is rendered.
+    g_weather_state.store(0, std::memory_order_relaxed);
     // HALF and QUARTER draw the cube every 2nd or 4th frame; between, the cars read the faces drawn last. OFF still
     // draws it every 512th: a cube never drawn leaves the paint white, whatever native/vulkan.cpp binds for it. Out of a
     // race and in its first frames it is drawn every frame: a race's cube is new, and its cars stayed white until the
@@ -436,6 +438,8 @@ X86_FUNC(sub_000CC530) {
 // (+0x290), which wets the road, is still worked out around it
 X86_EXTERN_FUNC(__imp__sub_002527A0);
 X86_FUNC(sub_002527A0) {
+    // This pass is invoked by the game's active precipitation view. Sample it before the optional draw toggle.
+    game::g_weather_state.store(1, std::memory_order_relaxed);
     if (game::Opt().rain) return __imp__sub_002527A0(ctx, base);
     ctx.esp += 4;
 }
@@ -452,6 +456,10 @@ X86_FUNC(sub_000C1BD0) {
     float& g = kernel::G<float>(tint + 4);
     float& b = kernel::G<float>(tint + 8);
     float saved[] = {r, g, b};
+    // Expose the game's live Visual Look RGB ramp to the post grade.
+    game::g_visual_tint_r.store(std::clamp(saved[0], 0.0f, 2.0f), std::memory_order_relaxed);
+    game::g_visual_tint_g.store(std::clamp(saved[1], 0.0f, 2.0f), std::memory_order_relaxed);
+    game::g_visual_tint_b.store(std::clamp(saved[2], 0.0f, 2.0f), std::memory_order_relaxed);
     float luma = 0.299f * saved[0] + 0.587f * saved[1] + 0.114f * saved[2];
     if (game::Opt().night_mode) {
         r = 0.15f * luma;

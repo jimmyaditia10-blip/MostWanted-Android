@@ -98,7 +98,7 @@ float4 psmain(O i) : SV_Target {
 // the present with the screen filter or anti-aliasing the player chose: the blit's, then post.x a filter (1 sharpen,
 // 2 vivid, 3 scanlines, 4 CRT) and post.y FXAA; src.xy a texel, src.z the frame's lines
 const char* kPresentHlsl = R"(
-cbuffer B : register(b1) { float4 uvrect; float4 opts; float4 src; float4 post; float4 grade; };
+cbuffer B : register(b1) { float4 uvrect; float4 opts; float4 src; float4 post; float4 grade; float4 weather; float4 daylight; };
 Texture2D img : register(t0);
 Texture2D lut : register(t1);
 SamplerState ls : register(s0);
@@ -197,6 +197,154 @@ float4 psmain(O i) : SV_Target {
     }
     c = (c - 0.5) * grade.x + 0.5;
     c *= grade.yzw;
+
+    // Weather-only grading is guarded so ordinary post-processing does not pay
+    // for material masks or texture-detail taps when Redux Weather is disabled.
+    int weatherMode = (int)weather.x;
+    if (weatherMode > 0) {
+    // Apply color_grade once at the final blend below; using it here as well squared its strength.
+    float materialGradeStrength = weatherMode > 0 ? 1.0 : 0.0;
+    float3 sourceColor = max(c, 0.0);
+    float materialLuma = Luma(sourceColor);
+    float cMin = min(c.r, min(c.g, c.b));
+    float cMax = max(c.r, max(c.g, c.b));
+    float chroma = cMax - cMin;
+    float warmBias = c.r - c.b * 0.82;
+    float greenBias = c.g - max(c.r, c.b) * 0.88;
+    float blueBias = c.b - max(c.r, c.g) * 0.82;
+
+    // Six requested visual families. Feathered masks intentionally overlap softly.
+    float skyMask = smoothstep(0.018, 0.105, blueBias) *
+                    smoothstep(0.38, 0.74, materialLuma);
+    float foliageMask = smoothstep(0.025, 0.13, greenBias) *
+                        (1.0 - smoothstep(0.72, 0.94, materialLuma));
+    float roadMask = (1.0 - smoothstep(0.035, 0.13, chroma)) *
+                     smoothstep(0.045, 0.15, materialLuma) *
+                     (1.0 - smoothstep(0.48, 0.68, materialLuma));
+    float buildingMask = (1.0 - smoothstep(0.055, 0.16, chroma)) *
+                         smoothstep(0.24, 0.42, materialLuma) *
+                         (1.0 - smoothstep(0.82, 0.94, materialLuma)) *
+                         (1.0 - roadMask) * (1.0 - skyMask);
+    float environmentMask = smoothstep(0.012, 0.075, warmBias) *
+                            (1.0 - smoothstep(0.09, 0.19, chroma)) *
+                            smoothstep(0.12, 0.28, materialLuma) *
+                            (1.0 - smoothstep(0.72, 0.88, materialLuma)) *
+                            (1.0 - roadMask) * (1.0 - buildingMask);
+    float vehiclePaintMask = smoothstep(0.11, 0.25, chroma) *
+                             smoothstep(0.13, 0.29, materialLuma) *
+                             (1.0 - smoothstep(0.88, 0.98, materialLuma)) *
+                             (1.0 - skyMask * 0.85) * (1.0 - foliageMask * 0.65);
+    float sunlightMask = smoothstep(0.68, 0.93, materialLuma) *
+                         smoothstep(0.018, 0.12, warmBias);
+
+    // Preserve source texture micro-detail: add back only a small high-frequency
+    // component, gated away from deep shadows and clipped highlights.
+    // Two-tap horizontal detail estimate: halves texture fetches versus the four-neighbour
+    // cross while retaining fine asphalt/paint texture at a much lower fragment cost.
+    float2 detailStep = src.xy * max(opts.z, 1.0);
+    if (materialGradeStrength > 0.0) {
+        float3 detailPair = (Tap(uv + float2(detailStep.x, 0)) +
+                             Tap(uv - float2(detailStep.x, 0))) * 0.5;
+        float3 textureDetail = Tap(uv) - detailPair;
+        float detailGate = smoothstep(0.075, 0.22, materialLuma) *
+                           (1.0 - smoothstep(0.82, 0.96, materialLuma));
+        c += textureDetail * (0.055 * detailGate);
+    }
+
+    float3 neutralLuma = Luma(max(c, 0.0)).xxx;
+    float3 paintChroma = c - neutralLuma;
+    // Car paint / colored surfaces: restrained chroma, not artificial neon.
+    c += paintChroma * vehiclePaintMask * 0.072 * materialGradeStrength;
+    // Road: retain asphalt grain while adding a mild midtone definition.
+    c = lerp(c, (c - 0.48) * 1.018 + 0.48,
+             roadMask * 0.42 * materialGradeStrength);
+    // Buildings: slightly clearer neutral separation without bleaching facade colors.
+    c = lerp(c, (c - 0.47) * 1.012 + 0.47,
+             buildingMask * 0.32 * materialGradeStrength);
+    // Environment / foliage: natural green and earth response.
+    c.g += foliageMask * 0.012 * materialGradeStrength;
+    c.r += environmentMask * 0.006 * materialGradeStrength;
+    c.g += environmentMask * 0.003 * materialGradeStrength;
+    // Sky and sun: clean blue, soft warm highlights with a protected shoulder.
+    c.b += skyMask * 0.016 * materialGradeStrength;
+    c.r += sunlightMask * 0.008 * materialGradeStrength;
+    c.g += sunlightMask * 0.003 * materialGradeStrength;
+    float weatherState = weatherMode == 1 ? saturate(weather.y) : float(weatherMode - 2);
+    float3 ungradedColor = c;
+    if (weatherMode > 0) {
+        // Softer scene-adaptive grade: restrained saturation, gentle contrast and natural highlight retention.
+        float sceneLuma = Luma(max(c, 0.0));
+        float3 toneTint = float3(1.0, 1.0, 1.0);
+        // Separate, deliberately restrained RGB profiles keep each manual preset's
+        // color identity while avoiding the large channel boosts that clip highlights.
+        float3 rgbProfile = float3(1.0, 1.0, 1.0);
+        const float3 clearRgb = float3(1.030, 1.014, 1.000);
+        const float3 rainRgb = float3(0.990, 1.000, 1.028);
+        const float3 cloudyRgb = float3(1.000, 1.010, 1.020);
+        const float3 sunsetRgb = float3(1.035, 1.014, 0.988);
+        float contrast = 1.050;
+        float saturation = 1.240;
+        float exposure = 1.006;
+        float daylightMix = 0.12;
+        float shadowLift = 0.006;
+        if (weatherMode == 1) {
+            // AUTO currently has a verified live precipitation signal only.
+            // Keep its clear/rain transition continuous; do not guess cloudy/sunset.
+            float rainMix = smoothstep(0.12, 0.88, weatherState);
+            contrast = lerp(1.052, 1.055, rainMix);
+            saturation = lerp(1.270, 1.205, rainMix);
+            exposure = lerp(1.006, 0.998, rainMix);
+            toneTint = lerp(float3(1.012, 1.006, 0.996), float3(0.994, 1.004, 1.018), rainMix);
+            rgbProfile = lerp(clearRgb, rainRgb, rainMix);
+            shadowLift = lerp(0.006, 0.009, rainMix);
+        } else if (weatherState == 0.0) { // clear
+            contrast = 1.052;
+            saturation = 1.260;
+            exposure = 1.012;
+            toneTint = float3(1.012, 1.006, 0.994);
+            rgbProfile = clearRgb;
+        } else if (weatherState == 1.0) { // rain
+            contrast = 1.055;
+            saturation = 1.205;
+            exposure = 0.998;
+            toneTint = float3(0.994, 1.004, 1.018);
+            rgbProfile = rainRgb;
+            shadowLift = 0.009;
+        } else if (weatherState == 2.0) { // cloudy
+            contrast = 1.045;
+            saturation = 1.185;
+            exposure = 1.005;
+            toneTint = float3(1.006, 1.010, 1.014);
+            rgbProfile = cloudyRgb;
+            shadowLift = 0.012;
+        } else if (weatherState == 3.0) { // sunset
+            contrast = 1.050;
+            saturation = 1.245;
+            exposure = 1.000;
+            toneTint = float3(1.028, 1.012, 0.978);
+            rgbProfile = sunsetRgb;
+            daylightMix = 0.20;
+        }
+        toneTint *= rgbProfile;
+        // Blend the game's native Visual Look RGB balance subtly into the grade.
+        float daylightLuma = max(dot(daylight.rgb, float3(0.299, 0.587, 0.114)), 0.05);
+        float3 daylightBalance = clamp(daylight.rgb / daylightLuma, 0.94, 1.06);
+        toneTint *= lerp(float3(1.0, 1.0, 1.0), daylightBalance, daylightMix);
+        c *= exposure * toneTint;
+        float luma = Luma(c);
+        c = lerp(luma.xxx, c, saturation);
+        c = (c - 0.48) * contrast + 0.48;
+        // Smooth shoulder and toe: retain bright paint/sun detail and open shadows without grey haze.
+        float3 highlight = max(c - 0.70, 0.0);
+        c -= highlight * (0.30 + 0.10 * saturate((c - 0.70) / 0.30));
+        float shadowMask = 1.0 - smoothstep(0.012, 0.22, sceneLuma);
+        c += shadowMask * shadowLift;
+        // Fine, restrained local contrast: stronger in midtones, fades in deep shadows/highlights.
+        float midMask = smoothstep(0.08, 0.24, sceneLuma) * (1.0 - smoothstep(0.72, 0.94, sceneLuma));
+        c = lerp(c, (c - 0.46) * 1.018 + 0.46, midMask);
+    }
+    c = lerp(ungradedColor, c, saturate(weather.z));
+    }
     c = saturate(c) * opts.w;
     if (opts.x > 0) c = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
     c *= post.w;  // player brightness, applied after the game's gamma ramp
@@ -4237,13 +4385,13 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
     float aspect = game::Aspect();
     float w = float(swap_extent_.width), h = float(swap_extent_.height);
     float vw = std::min(w, h * aspect), vh = vw / aspect;
-    float c[20] = {0, 0, 1, 1, gamma_ ? 1.0f : 0.0f, 0, 1, 1};
+    float c[28] = {0, 0, 1, 1, gamma_ ? 1.0f : 0.0f, 0, 1, 1};
     // the screen filter and anti-aliasing, off unless the player picks them: the plain blit then
     const game::Options& visual = game::Opt();
     uint32_t filter = visual.screen_filter, aa = visual.anti_aliasing;
     bool adjust = visual.brightness != 1.0f || visual.contrast != 1.0f || visual.sharpness > 0.001f ||
                   visual.red_gain != 1.0f || visual.green_gain != 1.0f || visual.blue_gain != 1.0f;
-    bool post = t && (filter || aa || adjust);
+    bool post = t && (filter || aa || adjust || visual.redux_weather != 0);
     if (post) {
         c[8] = 1.0f / float(std::max(t->w, 1u));
         c[9] = 1.0f / float(std::max(t->h, 1u));
@@ -4256,6 +4404,20 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
         c[17] = visual.red_gain;
         c[18] = visual.green_gain;
         c[19] = visual.blue_gain;
+        c[20] = float(visual.redux_weather);
+        // Smooth the detected weather over time; precipitation can flicker between adjacent render passes.
+        static float weatherBlend = 0.0f;
+        static auto weatherClock = std::chrono::steady_clock::now();
+        const auto weatherNow = std::chrono::steady_clock::now();
+        const float weatherDt = std::clamp(std::chrono::duration<float>(weatherNow - weatherClock).count(), 0.0f, 0.10f);
+        weatherClock = weatherNow;
+        const float weatherTarget = float(game::g_weather_state.load(std::memory_order_relaxed));
+        weatherBlend += (weatherTarget - weatherBlend) * (1.0f - std::exp(-weatherDt * 2.8f));
+        c[21] = weatherBlend;
+        c[22] = visual.color_grade;
+        c[24] = game::g_visual_tint_r.load(std::memory_order_relaxed);
+        c[25] = game::g_visual_tint_g.load(std::memory_order_relaxed);
+        c[26] = game::g_visual_tint_b.load(std::memory_order_relaxed);
         // supersampled: the texels each screen pixel covers, averaged
         if (aa == game::kAaSsaa) c[6] = std::clamp(std::round(float(t->h) / std::max(vh, 1.0f)), 1.0f, 4.0f);
     }
