@@ -98,7 +98,7 @@ jobs:
           set -euo pipefail
           cmp audit/spirv/original-vs.spv audit/spirv/candidate-vs.spv
           for shader in original candidate; do
-            grep -E 'OpDecorate .*Location|OpDecorate .*BuiltIn' "audit/spirv/${shader}-ps.spvasm" | sed -E 's/.*Location ([0-9]+).*/Location \\1/; s/.*BuiltIn ([A-Za-z]+).*/BuiltIn \\1/' | sort > "audit/spirv/${shader}-interface.txt"
+            grep -E 'OpDecorate .*Location|OpDecorate .*BuiltIn' "audit/spirv/${shader}-ps.spvasm" | sed -E 's/.*Location ([0-9]+).*/Location \1/; s/.*BuiltIn ([A-Za-z]+).*/BuiltIn \1/' | sort > "audit/spirv/${shader}-interface.txt"
           done
           diff -u audit/spirv/original-interface.txt audit/spirv/candidate-interface.txt
           if cmp -s audit/spirv/original-ps.spv audit/spirv/candidate-ps.spv; then
