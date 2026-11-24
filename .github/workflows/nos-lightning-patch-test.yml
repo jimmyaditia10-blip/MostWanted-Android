@@ -49,7 +49,8 @@ jobs:
             MostWanted-1.4.0-NOS-Lightning.apk \
             MostWanted-1.4.0-NOS-Lightning.apk
           sha256sum MostWanted-1.4.0-NOS-Lightning.apk | tee PATCHED-APK-SHA256.txt
-          readelf -h <(unzip -p MostWanted-1.4.0-NOS-Lightning.apk lib/arm64-v8a/libmain.so) | grep -E "ELF64|AArch64"
+          unzip -p MostWanted-1.4.0-NOS-Lightning.apk lib/arm64-v8a/libmain.so > patched-libmain.so
+          readelf -h patched-libmain.so | grep -E "ELF64|AArch64"
       - name: Upload patched APK and byte-level report
         uses: actions/upload-artifact@v5
         with:
