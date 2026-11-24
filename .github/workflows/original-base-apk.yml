@@ -82,6 +82,22 @@ jobs:
           echo "$PUSTAKA_APK_SHA256  $payload" | sha256sum --check -
           echo "PUSTAKA_APK=$payload" >> "$GITHUB_ENV"
 
+      - name: Extract exact Pustaka renderer and DEX diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/extract_pustaka_diagnostics.py "$PUSTAKA_APK" Pustaka-Diagnostics
+          test -s Pustaka-Diagnostics/libmain.so
+          test -s Pustaka-Diagnostics/SHA256-AND-RENDERER-STRINGS.txt
+
+      - name: Upload Pustaka renderer diagnostics
+        uses: actions/upload-artifact@v5
+        with:
+          name: Pustaka-Renderer-Diagnostics
+          path: Pustaka-Diagnostics/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Integrate Mod Loader, Flip Car and NOS Trail payload
         shell: cmd
         run: |
