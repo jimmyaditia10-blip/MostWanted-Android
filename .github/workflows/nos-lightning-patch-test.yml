@@ -1,0 +1,63 @@
+name: Validate NOS Lightning Shader Patch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/nos-lightning-patch-test.yml"
+      - "research/nosfx_lightning_shader.hlsl"
+      - "tools/patch_pustaka_nos_shader.py"
+      - "tools/verify_pustaka_payload.py"
+  push:
+    branches: ["fix/full-pustaka-loader-parity"]
+    paths:
+      - ".github/workflows/nos-lightning-patch-test.yml"
+      - "research/nosfx_lightning_shader.hlsl"
+      - "tools/patch_pustaka_nos_shader.py"
+      - "tools/verify_pustaka_payload.py"
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    name: Patch and verify the exact Pustaka renderer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed patch sources
+        uses: actions/checkout@v5
+      - name: Install ELF inspection tools
+        run: sudo apt-get update && sudo apt-get install -y binutils
+      - name: Download and verify the exact tested Pustaka APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-all-errors \
+            "https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk" \
+            --output MostWanted-1.4.0.apk
+          echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  MostWanted-1.4.0.apk" | sha256sum --check -
+      - name: Patch only the original NOS shader slot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_pustaka_nos_shader.py \
+            MostWanted-1.4.0.apk \
+            research/nosfx_lightning_shader.hlsl \
+            MostWanted-1.4.0-NOS-Lightning.apk
+          python3 tools/verify_pustaka_payload.py \
+            MostWanted-1.4.0-NOS-Lightning.apk \
+            MostWanted-1.4.0-NOS-Lightning.apk
+          sha256sum MostWanted-1.4.0-NOS-Lightning.apk | tee PATCHED-APK-SHA256.txt
+          unzip -p MostWanted-1.4.0-NOS-Lightning.apk lib/arm64-v8a/libmain.so > patched-libmain.so
+          readelf -h patched-libmain.so | grep -E "ELF64|AArch64"
+      - name: Upload patched APK and byte-level report
+        uses: actions/upload-artifact@v5
+        with:
+          name: Pustaka-NOS-Lightning-Patch-Test
+          path: |
+            MostWanted-1.4.0-NOS-Lightning.apk
+            MostWanted-1.4.0-NOS-Lightning.apk.patch-report.txt
+            PATCHED-APK-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14

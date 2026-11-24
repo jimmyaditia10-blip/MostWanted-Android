@@ -2,23 +2,73 @@ name: Rangga Casper Original Base APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/original-base-apk.yml
+      - tools/integrate_pustaka_apk.py
+      - tools/patch_pustaka_nos_shader.py
+      - tools/verify_pustaka_payload.py
+      - tools/extract_pustaka_diagnostics.py
+      - research/nosfx_lightning_shader.hlsl
   push:
     branches:
       - main
     paths:
       - .github/workflows/original-base-apk.yml
       - tools/integrate_pustaka_apk.py
+      - tools/patch_pustaka_nos_shader.py
+      - tools/verify_pustaka_payload.py
+      - tools/extract_pustaka_diagnostics.py
+      - research/nosfx_lightning_shader.hlsl
 
 permissions:
   contents: read
 
 concurrency:
-  group: original-base-apk
+  group: original-base-apk-nos-lightning
   cancel-in-progress: false
 
 jobs:
+  validate-nos-lightning-patch:
+    name: Validate exact Pustaka NOS shader patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout patch sources
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Download and verify exact Pustaka reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output MostWanted-1.4.0.apk "$PUSTAKA_APK_URL"
+          echo "$PUSTAKA_APK_SHA256  MostWanted-1.4.0.apk" | sha256sum --check -
+        env:
+          PUSTAKA_APK_URL: https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk
+          PUSTAKA_APK_SHA256: 222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc
+      - name: Patch shader and verify complete source APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_pustaka_nos_shader.py MostWanted-1.4.0.apk research/nosfx_lightning_shader.hlsl MostWanted-1.4.0-NOS-Lightning.apk
+          python3 tools/verify_pustaka_payload.py MostWanted-1.4.0-NOS-Lightning.apk MostWanted-1.4.0-NOS-Lightning.apk
+          sha256sum MostWanted-1.4.0-NOS-Lightning.apk | tee PATCHED-APK-SHA256.txt
+      - name: Upload patched Pustaka APK for independent inspection
+        uses: actions/upload-artifact@v5
+        with:
+          name: Pustaka-NOS-Lightning-Patch-Test
+          path: |
+            MostWanted-1.4.0-NOS-Lightning.apk
+            MostWanted-1.4.0-NOS-Lightning.apk.patch-report.txt
+            PATCHED-APK-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14
+
   build:
-    name: Build clean base APK from main
+    name: Build base APK with complete Pustaka runtime
     runs-on: windows-2025
     timeout-minutes: 300
     env:
@@ -29,10 +79,10 @@ jobs:
       PUSTAKA_APK_SHA256: 222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc
 
     steps:
-      - name: Checkout clean base branch
+      - name: Checkout commit under validation
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
 
       - name: Set up Java 17
@@ -67,7 +117,6 @@ jobs:
         shell: cmd
         run: call build.bat
 
-
       - name: Download and verify tested Pustaka APK
         shell: bash
         run: |
@@ -77,24 +126,50 @@ jobs:
           echo "$PUSTAKA_APK_SHA256  $payload" | sha256sum --check -
           echo "PUSTAKA_APK=$payload" >> "$GITHUB_ENV"
 
+      - name: Extract exact Pustaka renderer and DEX diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/extract_pustaka_diagnostics.py "$PUSTAKA_APK" Pustaka-Diagnostics
+          test -s Pustaka-Diagnostics/libmain.so
+          test -s Pustaka-Diagnostics/SHA256-AND-RENDERER-STRINGS.txt
+
+      - name: Upload Pustaka renderer diagnostics
+        uses: actions/upload-artifact@v5
+        with:
+          name: Pustaka-Renderer-Diagnostics
+          path: Pustaka-Diagnostics/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Integrate Mod Loader, Flip Car and NOS Trail payload
         shell: cmd
         run: |
           setlocal
-          set "BASE=app\build\outputs\apk\release\app-release.apk"
-          set "MERGED=%RUNNER_TEMP%\original-base-integrated-unsigned.apk"
-          set "ALIGNED=%RUNNER_TEMP%\original-base-integrated-aligned.apk"
-          set "SIGNED=%RUNNER_TEMP%\original-base-integrated-signed.apk"
+          set "BASE=app\\build\\outputs\\apk\\release\\app-release.apk"
+          set "PATCHED=%RUNNER_TEMP%\\MostWanted-1.4.0-NOS-Lightning.apk"
+          set "MERGED=%RUNNER_TEMP%\\original-base-integrated-unsigned.apk"
+          set "ALIGNED=%RUNNER_TEMP%\\original-base-integrated-aligned.apk"
+          set "SIGNED=%RUNNER_TEMP%\\original-base-integrated-signed.apk"
           if not exist "%BASE%" exit /b 1
-          python tools\integrate_pustaka_apk.py "%BASE%" "%PUSTAKA_APK%" "%MERGED%"
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\zipalign.exe" -f -p 4 "%MERGED%" "%ALIGNED%"
-          if not exist "%USERPROFILE%\.android\debug.keystore" (
+          python tools\\patch_pustaka_nos_shader.py "%PUSTAKA_APK%" "research\\nosfx_lightning_shader.hlsl" "%PATCHED%"
+          if errorlevel 1 exit /b 1
+          copy /Y "%PATCHED%.patch-report.txt" "NOS-LIGHTNING-PATCH-REPORT.txt" >nul
+          python tools\\integrate_pustaka_apk.py "%BASE%" "%PATCHED%" "%MERGED%"
+          "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -f -P 16 4 "%MERGED%" "%ALIGNED%"
+          "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -c -P 16 4 "%ALIGNED%"
+          if not exist "%USERPROFILE%\\.android\\debug.keystore" (
             echo Debug keystore was not generated by Gradle
             exit /b 1
           )
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\apksigner.bat" sign --ks "%USERPROFILE%\.android\debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "%SIGNED%" "%ALIGNED%"
-          "%ANDROID_HOME%\build-tools\%BUILD_TOOLS_VERSION%\apksigner.bat" verify --verbose "%SIGNED%"
+          "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\apksigner.bat" sign --ks "%USERPROFILE%\\.android\\debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out "%SIGNED%" "%ALIGNED%"
+          "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\apksigner.bat" verify --verbose "%SIGNED%"
+          "%ANDROID_HOME%\\build-tools\\%BUILD_TOOLS_VERSION%\\zipalign.exe" -c -P 16 4 "%SIGNED%"
+          python tools\\verify_pustaka_payload.py "%PATCHED%" "%SIGNED%"
+          if errorlevel 1 exit /b 1
           copy /Y "%SIGNED%" "%BASE%" >nul
+          python tools\\verify_pustaka_payload.py "%PATCHED%" "%BASE%"
+          if errorlevel 1 exit /b 1
           endlocal
 
       - name: Verify and name integrated APK
@@ -114,5 +189,6 @@ jobs:
           path: |
             RanggaCasper-Original-Base.apk
             SHA256SUMS.txt
+            NOS-LIGHTNING-PATCH-REPORT.txt
           if-no-files-found: error
           retention-days: 30
