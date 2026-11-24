@@ -1,0 +1,30 @@
+name: Build APK Texture Editor
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/nfs-apk-texture-editor
+    paths:
+      - 'apk-texture-editor/**'
+      - '.github/workflows/build-apk-texture-editor.yml'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apk-texture-editor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apk-texture-editor/package.json
+      - run: npm install
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfs-apk-texture-editor-dist
+          path: apk-texture-editor/dist/
+          if-no-files-found: error
+          retention-days: 14
