@@ -38,6 +38,8 @@ jobs:
           echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  /tmp/pustaka.apk" | sha256sum -c -
           unzip -p /tmp/pustaka.apk lib/arm64-v8a/libmain.so > /tmp/pustaka-libmain.so
           unzip -p /tmp/pustaka.apk classes.dex > /tmp/pustaka-classes.dex
+          unzip -Z1 /tmp/pustaka.apk | grep '^lib/' > pustaka-native-libs.txt
+          unzip -l /tmp/pustaka.apk | grep ' lib/' >> pustaka-native-libs.txt || true
           {
             echo "Pustaka APK SHA256 verified"
             echo "=== APK entries ==="
@@ -73,5 +75,6 @@ jobs:
             pustaka-nosfx-disasm.txt
             pustaka-libmain.so
             pustaka-libmain.sha256
+            pustaka-native-libs.txt
           if-no-files-found: error
           retention-days: 14
