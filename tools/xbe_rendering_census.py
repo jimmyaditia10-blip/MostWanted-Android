@@ -193,7 +193,23 @@ def main():
    off=b.find(needle,start)
    if off<0: break
    hits.append(off); start=off+1
-  if hits: add(f"  {val} VA=0x{va:08X}: "+", ".join(f"file+0x{o:X}" for o in hits[:32]))
+  if hits:
+   add(f"  {val} VA=0x{va:08X}: "+", ".join(f"file+0x{o:X}" for o in hits[:32]))
+   for hit in hits[:12]:
+    sec=next((ss for ss in sections if ss["raw"]<=hit<ss["raw"]+ss["raw_size"]),None)
+    if not sec: continue
+    ptr_va=sec["va"]+(hit-sec["raw"])
+    refs=[(ss,x) for ss,x in all_instructions
+          if any(op.type==x86_const.X86_OP_IMM and (op.imm&0xFFFFFFFF)==ptr_va for op in x.operands)]
+    lo=max(sec["raw"],hit-0x20); hi=min(sec["raw"]+sec["raw_size"],hit+0x24)
+    add(f"    pointer-slot VA=0x{ptr_va:08X} refs={len(refs)} bytes[{lo:06X}:{hi:06X}]={b[lo:hi].hex(' ')}")
+    for ss,x in refs[:12]: add(f"      code [{ss}] {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
+    # Decode adjacent pointer words that land on known XBE strings.
+    for pos in range(max(sec["raw"],hit-0x18),min(sec["raw"]+sec["raw_size"],hit+0x1C),4):
+     if pos+4>len(b): break
+     valptr=u32(b,pos)
+     match=next((name for sva,name in strings if sva==valptr),None)
+     if match: add(f"      adjacent string pointer file+0x{pos:X} -> {match}")
  add("\nDIRECT CALLS TO KNOWN RENDER FUNCTIONS:")
  for sec,x in all_instructions:
   if x.mnemonic=="call" and x.operands and x.operands[0].type==x86_const.X86_OP_IMM:
