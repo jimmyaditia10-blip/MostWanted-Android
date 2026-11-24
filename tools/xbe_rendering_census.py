@@ -187,7 +187,7 @@ def main():
  # Also locate literal pointers to the actual XBE string-table entries.
  add("\\nRAW POINTER XREFS TO BRAKE-LIGHT / NOS STRINGS:")
  for va,val in strings:
-  if not any(k in val.upper() for k in ("BRAKE","NOS","WIND","TRAIL")): continue
+  if not any(k in val.upper() for k in ("BRAKE","NOS","WIND","TRAIL","CARRENDERCONN","VELOCITY")): continue
   needle=struct.pack("<I",va); hits=[]; start=0
   while True:
    off=b.find(needle,start)
