@@ -22,10 +22,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y glslang-tools spirv-tools
 
-      - uses: android-actions/setup-android@v3
-
       - name: Install APK signing tools
-        run: sdkmanager "build-tools;35.0.0"
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)"
+          if [ -z "$sdkmanager" ]; then echo "sdkmanager not found"; exit 1; fi
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" "build-tools;35.0.0"
+          echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
       - name: Download and verify exact Pustaka reference
         shell: bash
