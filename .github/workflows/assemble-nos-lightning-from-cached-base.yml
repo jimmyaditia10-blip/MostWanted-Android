@@ -49,8 +49,8 @@ jobs:
         with:
           name: RanggaCasper-Original-Base-Integrated
           run-id: 45301132268
-          repository: \${{ github.repository }}
-          github-token: \${{ github.token }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
           path: Cached-Base
       - name: Verify cached base SHA and stage it
         shell: bash
