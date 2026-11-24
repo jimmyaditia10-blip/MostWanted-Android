@@ -1,0 +1,99 @@
+name: Pustaka Renderer Source Audit
+
+on:
+  push:
+    branches: ["research/pustaka-renderer-audit"]
+    paths:
+      - ".github/workflows/pustaka-renderer-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the exact Pustaka reference APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk"
+          curl --fail --location --retry 3 --output MostWanted-1.4.0.apk "$url"
+          echo "APK bytes: $(stat -c %s MostWanted-1.4.0.apk)"
+          echo "APK SHA-256: $(sha256sum MostWanted-1.4.0.apk | cut -d' ' -f1)"
+          echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  MostWanted-1.4.0.apk" | sha256sum --check -
+
+      - name: Extract native and managed runtime inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/apk audit/native audit/dex audit/manifest
+          python3 - <<'PY'
+          import hashlib, json, zipfile
+          from pathlib import Path
+          apk=Path("MostWanted-1.4.0.apk")
+          out=Path("audit")
+          rows=[]
+          with zipfile.ZipFile(apk) as z:
+              bad=z.testzip()
+              if bad: raise SystemExit(f"ZIP CRC failure: {bad}")
+              for info in z.infolist():
+                  rows.append({"path":info.filename,"bytes":info.file_size,"crc32":f"{info.CRC:08x}"})
+                  name=info.filename
+                  if name=="AndroidManifest.xml":
+                      (out/"manifest"/"AndroidManifest.xml").write_bytes(z.read(name))
+                  elif name.endswith(".so"):
+                      p=out/"native"/Path(name).name
+                      p.write_bytes(z.read(name))
+                  elif name.endswith(".dex"):
+                      p=out/"dex"/Path(name).name
+                      p.write_bytes(z.read(name))
+                  elif name.startswith("assets/thunder/"):
+                      p=out/"apk"/name.replace("/","_")
+                      p.write_bytes(z.read(name))
+          manifest={
+            "apk_bytes":apk.stat().st_size,
+            "apk_sha256":hashlib.sha256(apk.read_bytes()).hexdigest(),
+            "entry_count":len(rows),
+            "zip_crc_test":"passed",
+            "entries":rows,
+            "extracted":{
+              "native":[{"path":str(p),"bytes":p.stat().st_size,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted((out/"native").glob("*"))],
+              "dex":[{"path":str(p),"bytes":p.stat().st_size,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted((out/"dex").glob("*"))],
+              "thunder_assets":[str(p) for p in sorted((out/"apk").glob("*"))]
+            }
+          }
+          (out/"source-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          print(json.dumps(manifest["extracted"],indent=2))
+          PY
+          cp MostWanted-1.4.0.apk audit/
+
+      - name: Create native string and symbol census
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "Pustaka APK exact-source audit"
+            echo "APK SHA-256: $(sha256sum audit/MostWanted-1.4.0.apk | cut -d' ' -f1)"
+            for so in audit/native/*.so; do
+              echo
+              echo "===== $so ====="
+              file "$so"
+              readelf -h "$so" || true
+              readelf -Ws "$so" 2>/dev/null | c++filt | grep -Ei 'nos|trail|thunder|particle|ribbon|lightning|draw' || true
+              strings -a -n 5 "$so" | grep -Ei 'nos|trail|thunder|particle|ribbon|lightning|coreLight|glowLight|brake|Draw' || true
+            done
+            for dex in audit/dex/*.dex; do
+              echo
+              echo "===== $dex ====="
+              strings -a "$dex" | grep -Ei 'ModTransaction|CarScript|FlipCar|BinaryNeon|NeonPack|NosTrail|DrawNosTrail|thunder|particle|trail' || true
+            done
+          } > audit/runtime-census.txt
+
+      - name: Upload exact reference and extracted runtime
+        uses: actions/upload-artifact@v5
+        with:
+          name: pustaka-renderer-source-audit
+          path: audit/
+          if-no-files-found: error
+          retention-days: 14
