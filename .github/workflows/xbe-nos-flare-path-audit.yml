@@ -9,6 +9,7 @@ on:
     paths:
       - .github/workflows/xbe-nos-flare-path-audit.yml
       - tools/xbe_rendering_census.py
+      - tools/xbe_contrail_xrefs.py
 
 permissions:
   contents: read
@@ -29,6 +30,7 @@ jobs:
         run: |
           test -s default.xbe
           python tools/xbe_rendering_census.py
+          python tools/xbe_contrail_xrefs.py default.xbe > xbe-contrail-xrefs.txt
           grep -n -E "CarRenderInfo::Render|car render|D3DDevice_Draw|light|flare|CarRenderConn|particle" xbe-rendering-report.txt > xbe-nos-flare-index.txt || true
       - uses: actions/upload-artifact@v5
         with:
@@ -36,5 +38,6 @@ jobs:
           path: |
             xbe-rendering-report.txt
             xbe-nos-flare-index.txt
+            xbe-contrail-xrefs.txt
           if-no-files-found: error
           retention-days: 14
