@@ -29,9 +29,9 @@ symbols=run("bash","-lc",f"readelf -Ws '{so_path}' | c++filt")
 for name in ["d3d::DrawNosTrail","streetlight::UpdateNosTrail","streetlight::BuildNosTrail","nosfx::History::Update","nosfx::History::Mesh","nosfx::kShader"]:
     if name not in symbols: raise SystemExit(f"Missing required Pustaka symbol: {name}")
 relocs=run("readelf","-rW",str(so_path))
-line=next((x for x in relocs.splitlines() if re.search(rf"^\\s*{EXPECTED_KSHADER_OBJECT:016x}\\s",x)),None)
-if not line or not re.search(rf"R_AARCH64_RELATIVE\\s+{EXPECTED_SHADER_VA:x}$",line):
-    raise SystemExit("nosfx::kShader relocation no longer points at the expected source")
+fields=next((x.split() for x in relocs.splitlines() if x.split() and x.split()[0].lower()==f"{EXPECTED_KSHADER_OBJECT:016x}"),None)
+if not fields or len(fields)<4 or fields[2]!="R_AARCH64_RELATIVE" or fields[-1].lower()!=f"{EXPECTED_SHADER_VA:x}":
+    raise SystemExit(f"nosfx::kShader relocation no longer points at the expected source: {fields}")
 end=so.find(b"\\0",EXPECTED_SHADER_VA)
 old=so[EXPECTED_SHADER_VA:end]
 if len(old)!=EXPECTED_SHADER_LEN or b"coreLight" not in old or b"glowLight" not in old:
