@@ -8,12 +8,20 @@ on:
     paths:
       - .github/workflows/original-base-apk.yml
       - tools/integrate_pustaka_apk.py
+      - tools/patch_pustaka_nos_shader.py
+      - tools/verify_pustaka_payload.py
+      - tools/extract_pustaka_diagnostics.py
+      - research/nosfx_lightning_shader.hlsl
   push:
     branches:
       - main
     paths:
       - .github/workflows/original-base-apk.yml
       - tools/integrate_pustaka_apk.py
+      - tools/patch_pustaka_nos_shader.py
+      - tools/verify_pustaka_payload.py
+      - tools/extract_pustaka_diagnostics.py
+      - research/nosfx_lightning_shader.hlsl
 
 permissions:
   contents: read
