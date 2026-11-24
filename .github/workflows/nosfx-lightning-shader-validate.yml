@@ -1,0 +1,68 @@
+name: Validate NOS Lightning Shader Candidate
+
+on:
+  push:
+    branches: ["research/pustaka-renderer-audit"]
+    paths:
+      - ".github/workflows/nosfx-lightning-shader-validate.yml"
+      - "research/nosfx_lightning_shader.hlsl"
+      - "tools/validate_nosfx_shader.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install matching shader validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools spirv-tools
+
+      - name: Download and verify exact Pustaka reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output MostWanted-1.4.0.apk "https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk"
+          echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  MostWanted-1.4.0.apk" | sha256sum --check -
+
+      - name: Verify exact in-place shader patch boundaries
+        run: |
+          python3 tools/validate_nosfx_shader.py MostWanted-1.4.0.apk research/nosfx_lightning_shader.hlsl audit
+
+      - name: Compile original and candidate with Vulkan HLSL settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit/spirv
+          for shader in original candidate; do
+            glslangValidator -D -V --target-env vulkan1.1 --hlsl-iomap --auto-map-bindings --auto-map-locations -S vert -e vs -o "audit/spirv/${shader}-vs.spv" "audit/shader/${shader}.hlsl"
+            glslangValidator -D -V --target-env vulkan1.1 --hlsl-iomap --auto-map-bindings --auto-map-locations -S frag -e ps -o "audit/spirv/${shader}-ps.spv" "audit/shader/${shader}.hlsl"
+            spirv-val --target-env vulkan1.1 "audit/spirv/${shader}-vs.spv"
+            spirv-val --target-env vulkan1.1 "audit/spirv/${shader}-ps.spv"
+            spirv-dis "audit/spirv/${shader}-ps.spv" > "audit/spirv/${shader}-ps.spvasm"
+          done
+
+      - name: Confirm the candidate adds no texture descriptors
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'OpTypeImage|OpTypeSampler|Binding [0-9]+' audit/spirv/candidate-ps.spvasm; then
+            echo "Unexpected texture/sampler descriptor in NOS shader candidate"
+            exit 1
+          fi
+          echo "Candidate pixel shader is descriptor-free, matching the original NOS shader path."
+
+      - name: Upload shader and patch validation report
+        uses: actions/upload-artifact@v5
+        with:
+          name: nos-lightning-shader-validation
+          path: |
+            audit/patch-validation.json
+            audit/shader/
+            audit/spirv/
+          if-no-files-found: error
+          retention-days: 14
