@@ -96,7 +96,7 @@ def main() -> int:
     apk_bytes = apk_path.read_bytes()
     if sha(apk_bytes) != EXPECTED_APK:
         raise SystemExit("Pustaka APK SHA-256 mismatch; refusing unknown binary")
-    candidate = candidate_path.read_bytes()
+    candidate = candidate_path.read_bytes().replace(bytes([13, 10]), bytes([10]))
     if candidate.endswith(b"\n"):
         candidate = candidate[:-1]
     if sha(candidate) != EXPECTED_CANDIDATE_SHA:
