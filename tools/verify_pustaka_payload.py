@@ -49,7 +49,7 @@ def main() -> int:
         changed = [n for n in sorted(src) if digest(source.read(n)) != digest(final.read(n))]
         if changed:
             raise SystemExit("FINAL APK PUSTAKA CONTENT MISMATCH: " + ", ".join(changed[:40]))
-        dex = b"".join(final.read(n) for n in sorted(dst) if re.fullmatch(r"classes\\d*\\.dex", n))
+        dex = b"".join(final.read(n) for n in sorted(dst) if re.fullmatch(r"classes\d*\.dex", n))
         native = final.read("lib/arm64-v8a/libmain.so")
         missing_dex = [m.decode("ascii", "replace") for m in DEX_MARKERS if m not in dex]
         missing_native = [m.decode("ascii", "replace") for m in NATIVE_MARKERS if m not in native]
