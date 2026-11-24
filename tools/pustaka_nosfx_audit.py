@@ -31,6 +31,9 @@ TARGETS = (
     "PixelSource",
     "FillViewport",
     "VulkanBackend4Draw",
+    "d3d",
+    "Renderer",
+    "Backend",
 )
 
 def hx(v):
@@ -57,7 +60,7 @@ def main():
         symbols = []
         for sym in symtab.iter_symbols():
             name = sym.name or ""
-            if any(k in name.lower() for k in ("nosfx", "drawnostrail", "streetlight", "vehiclelighting", "vkshader", "vulkanbackend", "pixelshader", "vertexshader", "gpu::backend")):
+            if any(k in name.lower() for k in ("nosfx", "drawnostrail", "streetlight", "vehiclelighting", "vkshader", "vulkanbackend", "pixelshader", "vertexshader", "gpu::backend", "d3d", "renderer", "backend")):
                 symbols.append((name, int(sym['st_value']), int(sym['st_size']),
                                 sym['st_info']['type'], sym['st_shndx']))
         symbols.sort(key=lambda x: (x[1], x[0]))
@@ -213,6 +216,41 @@ def main():
             if (0x1CFE000 <= addr < 0x1CFF000) or (0x1D7D000 <= addr < 0x1D7E000):
                 if sym.name:
                     print(f"{hx(addr)} size=0x{int(sym['st_size']):X} {sym.name}")
+
+
+        print("\\n=== NOSFX GLOBAL / SHADER / RENDERER XREFS ===")
+        pages = {
+            0x1D5C000: {0xA0, 0xA8},
+            0x1D610000: {0x680, 0x688},
+            0x1D450000: {0xA48, 0xA58},
+            0x1D430000: {0x4F0, 0x2548, 0x2550},
+            0x1D7D000: {0xD08, 0xD68},
+            0x053C000: {0xF5E},
+        }
+        for secname, va, off, size, data in text_sections:
+            insns = list(md.disasm(data, va))
+            for i, ins in enumerate(insns):
+                if ins.mnemonic != "adrp":
+                    continue
+                target_page = None
+                try:
+                    target_page = int(ins.op_str.split("#")[-1], 16)
+                except Exception:
+                    pass
+                if target_page not in pages:
+                    continue
+                window = insns[i:min(i+8, len(insns))]
+                if not any(any(f"#{off:x}" in x.op_str for off in pages[target_page]) for x in window[1:]):
+                    continue
+                print(f"\\n--- {secname} {hx(ins.address)} page={hx(target_page)} ---")
+                for x in window:
+                    print(f"{x.address:016X}: {x.mnemonic:8s} {x.op_str}")
+
+        print("\\n=== NOSFX GLOBAL OBJECT SYMBOLS ===")
+        for sym in symtab.iter_symbols():
+            name = sym.name or ""
+            if any(k in name.lower() for k in ("kshader", "drawnostrail", "d3d", "renderer", "backend", "pixelshader")):
+                print(f"{hx(int(sym['st_value']))} size=0x{int(sym['st_size']):X} type={sym['st_info']['type']} {name}")
 
 if __name__ == "__main__":
     main()
