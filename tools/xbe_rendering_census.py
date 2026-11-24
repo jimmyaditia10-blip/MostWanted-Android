@@ -13,6 +13,13 @@ KNOWN={
   0x000D8720:"frame render / view traversal",
   0x001B93D0:"camera directors and view camera movers",
   0x0025CC70:"car render-connection update",
+  0x0025C800:"VehicleRenderConn::RenderFlares candidate (NOS history/flare loop)",
+  0x0024A580:"CarRenderInfo::RenderFlaresOnCar candidate",
+  0x0024C0F0:"car light/flare helper candidate",
+  0x0024BB90:"car light/flare helper candidate",
+  0x0024CD00:"vehicle render flare helper candidate",
+  0x0024CDA0:"vehicle render flare helper candidate",
+  0x0025C970:"vehicle flare history helper candidate",
   0x00257E70:"car render per view",
   0x00255490:"CarRenderInfo::Render",
   0x000CE8B0:"native particle-system draw",
@@ -40,6 +47,11 @@ FLOW_TARGETS={**KNOWN,
   0x000C4C80:"car render helper", 0x000BF900:"car render helper",
   0x000D4D40:"car render helper", 0x000BD820:"car render helper",
   0x00243B30:"car render helper",
+  0x0025C800:"VehicleRenderConn::RenderFlares candidate (NOS history/flare loop)",
+  0x0024A580:"CarRenderInfo::RenderFlaresOnCar candidate",
+  0x0024C0F0:"car light/flare helper candidate",
+  0x0024BB90:"car light/flare helper candidate",
+  0x0025C970:"vehicle flare history helper candidate",
   0x00257B60:"car render view helper", 0x00257B70:"car render view helper",
   0x002579E0:"car render view helper", 0x00012D90:"car render helper",
   0x00012D40:"car render helper", 0x0003FD00:"car render helper",
@@ -167,9 +179,9 @@ def main():
    add(f"\n  {label} @ 0x{va:08X}: outside executable sections")
    continue
   md=Cs(CS_ARCH_X86,CS_MODE_32)
-  seq=list(md.disasm(b[chosen_off:chosen_off+0x300],chosen))
+  seq=list(md.disasm(b[chosen_off:chosen_off+0x1000],chosen))
   add(f"\n  {label} requested=0x{va:08X} decoded=0x{chosen:08X} section={chosen_sec['name']}")
-  for x in seq[:64]: add(f"    {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
+  for x in seq[:320]: add(f"    {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
  add("\nCONTROL-FLOW CALL CENSUS FOR EACH GAME / D3D ENTRY:")
  for start,label in sorted(FLOW_TARGETS.items()):
   sec=next((s for s in sections if s["name"] in (".text","D3D","XGRPH") and s["va"]<=start<s["va"]+s["raw_size"]),None)
