@@ -16,6 +16,7 @@ on:
       - ".github/workflows/assemble-nos-lightning-from-cached-base.yml"
       - "research/nosfx_lightning_shader.hlsl"
       - "tools/patch_pustaka_nos_shader.py"
+      - "tools/remove_always_rain.py"
       - "tools/integrate_pustaka_apk.py"
       - "tools/verify_pustaka_payload.py"
 
