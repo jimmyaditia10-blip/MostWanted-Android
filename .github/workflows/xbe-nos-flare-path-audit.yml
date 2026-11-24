@@ -1,5 +1,6 @@
 name: Xbox NOS Flare Path Audit
 
+# This workflow only reads the checked-in, SHA-1-verified Xbox XBE.
 on:
   workflow_dispatch:
   push:
