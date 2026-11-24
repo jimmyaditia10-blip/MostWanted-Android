@@ -17,10 +17,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install matching shader validation tools
+      - name: Build the exact glslang 16.0.0 compiler used by Pustaka
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y glslang-tools spirv-tools
+          sudo apt-get install -y spirv-tools cmake ninja-build build-essential
+          git clone --depth 1 --branch 16.0.0 https://github.com/KhronosGroup/glslang.git "$RUNNER_TEMP/glslang"
+          cmake -S "$RUNNER_TEMP/glslang" -B "$RUNNER_TEMP/glslang-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_GLSLANG_BINARIES=ON -DENABLE_OPT=OFF -DENABLE_HLSL=ON -DENABLE_SPVREMAPPER=OFF -DENABLE_CTEST=OFF
+          cmake --build "$RUNNER_TEMP/glslang-build" --target glslangValidator -j2
+          validator="$(find "$RUNNER_TEMP/glslang-build" -type f -name glslangValidator -perm -111 | head -1)"
+          if [ -z "$validator" ]; then echo "glslangValidator binary not found"; exit 1; fi
+          echo "$(dirname "$validator")" >> "$GITHUB_PATH"
+          "$validator" --version
 
       - name: Install APK signing tools
         shell: bash
