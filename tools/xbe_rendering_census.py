@@ -13,6 +13,9 @@ KNOWN={
   0x000D8720:"frame render / view traversal",
   0x001B93D0:"camera directors and view camera movers",
   0x0025CC70:"car render-connection update",
+  0x0024ABE0:"CarRenderInfo::RenderFlaresOnCar candidate",
+  0x0024CF50:"VehicleRenderConn::RenderFlares body",
+  0x00257B60:"VehicleRenderConn::RenderFlares thunk",
   0x00257E70:"car render per view",
   0x00255490:"CarRenderInfo::Render",
   0x000CE8B0:"native particle-system draw",
@@ -285,10 +288,10 @@ def main():
   for dest,n in direct.most_common(45):
    add(f"    call {n:3d}x -> 0x{dest:08X} {KNOWN.get(dest,'')}")
   for item in indirect[:35]: add("    indirect "+item)
-  if start in (0x00257E70,0x002579E0,0x00257B60,0x0025CC70):
+  if start in (0x0024ABE0,0x0024CF50,0x00257B60,0x00257E70,0x002579E0,0x0025CC70):
    function_dumps[start]=sorted(function_ins,key=lambda ins:ins.address)
  add("\\nFULL CONTROL-FLOW DISASSEMBLY: VEHICLE RENDER / NOS CANDIDATES")
- for start in (0x00257E70,0x002579E0,0x00257B60,0x0025CC70):
+ for start in (0x0024ABE0,0x0024CF50,0x00257B60,0x00257E70,0x002579E0,0x0025CC70):
   if start not in function_dumps: continue
   add(f"\\n  FUNCTION 0x{start:08X} instructions={len(function_dumps[start])}")
   for ins in function_dumps[start]:
