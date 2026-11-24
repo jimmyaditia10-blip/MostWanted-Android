@@ -1,7 +1,7 @@
 name: Xbox NOS Flare Path Audit
 
 # Read-only XBE audit: no game code or runtime assets are patched.
-# Includes TextureInfo lookup, D3D binding, flare draw, and verified Pustaka loader API inventory.
+# Decompiles verified Pustaka TexturePacks implementation and traces flare texture binding.
 on:
   workflow_dispatch:
   push:
