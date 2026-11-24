@@ -162,7 +162,7 @@ def main() -> int:
             expected = bytes(patched_so) if name == so_name else src.read(name)
             if check.read(name) != expected:
                 raise SystemExit("Patched APK entry verification failed: " + name)
-    out_path.with_suffix(".patch-report.txt").write_text(report, encoding="utf-8")
+    Path(str(out_path) + ".patch-report.txt").write_text(report, encoding="utf-8")
     print(report, end="")
     print("PATCHED PUSTAKA APK:", out_path, "bytes:", out_path.stat().st_size)
     return 0
