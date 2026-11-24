@@ -20,6 +20,9 @@ KNOWN={
   0x00255490:"CarRenderInfo::Render",
   0x000CE8B0:"native particle-system draw",
   0x000D37F0:"eRenderLightFlare / flare sprite draw candidate",
+  0x000D0E90:"flare material/geometry submit candidate",
+  0x000CFBC0:"D3D texture/stream submit helper",
+  0x000D4860:"flare/view submit helper",
   0x00377050:"D3DDevice_DrawIndexedVertices",
   0x00376EE0:"D3DDevice_DrawVerticesUP",
   0x00373470:"D3DDevice_SetStreamSource",
@@ -289,10 +292,10 @@ def main():
   for dest,n in direct.most_common(45):
    add(f"    call {n:3d}x -> 0x{dest:08X} {KNOWN.get(dest,'')}")
   for item in indirect[:35]: add("    indirect "+item)
-  if start in (0x000D37F0,0x0024ABE0,0x0024CF50,0x00257B60,0x00257E70,0x002579E0,0x0025CC70):
+  if start in (0x000D37F0,0x000D0E90,0x000CFBC0,0x000D4860,0x0024ABE0,0x0024CF50,0x00257B60,0x00257E70,0x002579E0,0x0025CC70):
    function_dumps[start]=sorted(function_ins,key=lambda ins:ins.address)
  add("\\nFULL CONTROL-FLOW DISASSEMBLY: VEHICLE RENDER / NOS CANDIDATES")
- for start in (0x000D37F0,0x0024ABE0,0x0024CF50,0x00257B60,0x00257E70,0x002579E0,0x0025CC70):
+ for start in (0x000D37F0,0x000D0E90,0x000CFBC0,0x000D4860,0x0024ABE0,0x0024CF50,0x00257B60,0x00257E70,0x002579E0,0x0025CC70):
   if start not in function_dumps: continue
   add(f"\\n  FUNCTION 0x{start:08X} instructions={len(function_dumps[start])}")
   for ins in function_dumps[start]:
