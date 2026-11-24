@@ -7,7 +7,7 @@ APK_LIB = "lib/arm64-v8a/libmain.so"
 SYMBOL = b"_Z17AlwaysRainWeatherR10X86ContextPh"
 SYMBOL_VA = 0x919E60
 SYMBOL_SIZE = 1048
-ORIGINAL_PROLOGUE = bytes.fromhex("a9bd7bfd")
+ORIGINAL_PROLOGUE = bytes.fromhex("fd7bbda9")
 RET = bytes.fromhex("c0035fd6")
 
 def sha256(data: bytes) -> str:
