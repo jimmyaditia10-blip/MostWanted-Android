@@ -204,6 +204,25 @@ def main():
     lo=max(sec["raw"],hit-0x20); hi=min(sec["raw"]+sec["raw_size"],hit+0x24)
     add(f"    pointer-slot VA=0x{ptr_va:08X} refs={len(refs)} bytes[{lo:06X}:{hi:06X}]={b[lo:hi].hex(' ')}")
     for ss,x in refs[:12]: add(f"      code [{ss}] {x.address:08X}: {x.mnemonic:8s} {x.op_str}")
+    # Recover the surrounding XBE routine for code-embedded string references.
+    if sec["name"] in (".text","D3D","XGRPH"):
+     prologues=[p for p in range(max(sec["raw"],hit-0x300),hit)
+                if b[p:p+3]==bytes((0x55,0x8B,0xEC))]
+     if prologues:
+      p=prologues[-1]; fn_va=sec["va"]+(p-sec["raw"])
+      add(f"      nearest frame prologue VA=0x{fn_va:08X}")
+      md2=Cs(CS_ARCH_X86,CS_MODE_32)
+      seq2=list(md2.disasm(b[p:min(sec["raw"]+sec["raw_size"],p+0x180)],fn_va))
+      for ins2 in seq2:
+       add(f"        {ins2.address:08X}: {ins2.mnemonic:8s} {ins2.op_str}")
+       if ins2.address>ptr_va+0x40 and ins2.mnemonic.startswith("ret"): break
+      call_sites=[(ss,ins3) for ss,ins3 in all_instructions
+                  if ins3.mnemonic=="call" and ins3.operands and
+                  ins3.operands[0].type==x86_const.X86_OP_IMM and
+                  (ins3.operands[0].imm&0xFFFFFFFF)==fn_va]
+      if call_sites:
+       for ss,ins3 in call_sites[:20]:
+        add(f"        caller [{ss}] {ins3.address:08X}: {ins3.mnemonic} {ins3.op_str}")
     # Decode adjacent pointer words that land on known XBE strings.
     for pos in range(max(sec["raw"],hit-0x18),min(sec["raw"]+sec["raw_size"],hit+0x1C),4):
      if pos+4>len(b): break
