@@ -19,6 +19,8 @@ TARGETS = (
     "UpdateNosTrail",
     "BeginVehicleLights",
     "IncludeBodyMarker",
+    "ValidPose",
+    "VehicleLightReady",
     "SeedSources",
     "CaptureDraw",
     "RelativeProjection",
@@ -176,6 +178,36 @@ def main():
             print(f"helper={hx(helper)} section={secname} bytes={length}")
             for ins in md.disasm(data[helper-va:helper-va+length], helper):
                 print(f"{ins.address:016X}: {ins.mnemonic:8s} {ins.op_str}")
+
+
+        print("\\n=== TRAIL ANCHOR GLOBAL XREFS ===")
+        for secname, va, off, size, data in text_sections:
+            instructions = list(md.disasm(data, va))
+            for i, ins in enumerate(instructions):
+                if ins.mnemonic != "adrp" or "#0x1d7d000" not in ins.op_str:
+                    continue
+                window = instructions[i:min(i+10, len(instructions))]
+                if any("#0xd08" in x.op_str or "#0xd68" in x.op_str for x in window):
+                    print(f"\\n--- {secname} around {hx(ins.address)} ---")
+                    for x in window:
+                        print(f"{x.address:016X}: {x.mnemonic:8s} {x.op_str}")
+
+        print("\\n=== LOCAL HELPER CALLED BY BeginVehicleLights ===")
+        helper = 0x0000000000984FF0
+        sec = section_for(helper)
+        if sec:
+            secname, va, off, secsize, data = sec
+            length = min(0x500, va + secsize - helper)
+            print(f"helper={hx(helper)} section={secname} bytes={length}")
+            for ins in md.disasm(data[helper-va:helper-va+length], helper):
+                print(f"{ins.address:016X}: {ins.mnemonic:8s} {ins.op_str}")
+
+        print("\\n=== NAMED SYMBOLS NEAR TRAIL GLOBALS ===")
+        for sym in symtab.iter_symbols():
+            addr = int(sym["st_value"])
+            if (0x1CFE000 <= addr < 0x1CFF000) or (0x1D7D000 <= addr < 0x1D7E000):
+                if sym.name:
+                    print(f"{hx(addr)} size=0x{int(sym['st_size']):X} {sym.name}")
 
 if __name__ == "__main__":
     main()
