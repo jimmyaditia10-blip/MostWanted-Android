@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import hashlib, re, struct, subprocess, sys, zipfile
+import hashlib, re, struct, sys, zipfile
 from pathlib import Path
 
 EXPECTED_APK = "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc"
@@ -10,28 +10,77 @@ EXPECTED_CANDIDATE_SHA = "b23da2a3ed577be3da1c2af2382b9320759b10a1aef78a223411a8
 SHADER_VA = 0x53CF5E
 SHADER_LEN = 2343
 KSHADER_OBJECT = 0x1D5C0A0
-MARKERS = ("d3d::DrawNosTrail", "streetlight::UpdateNosTrail", "streetlight::BuildNosTrail",
-           "nosfx::History::Update", "nosfx::History::Mesh", "nosfx::kShader")
+KSHADER_RELOC_TYPE = 1027
+SYMBOLS = (
+    "_ZN3d3d12DrawNosTrailEv",
+    "_ZN11streetlight14UpdateNosTrailEjj",
+    "_ZN11streetlight13BuildNosTrailERN3gpu5StateERNSt6__ndk16vectorIfNS3_9allocatorIfEEEE",
+    "_ZN5nosfx7History6UpdateEdbN11streetlight3VecES2_",
+    "_ZN5nosfx7History4MeshEdN11streetlight3VecERKNSt6__ndk15arrayIfLm16EEERNS3_6vectorIfNS3_9allocatorIfEEEE",
+    "_ZN5nosfx7kShaderE",
+)
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def run(*args: str) -> str:
-    return subprocess.run(args, check=True, text=True, capture_output=True).stdout
-
-def va_to_offset(elf: bytes, va: int, size: int) -> int:
+def elf_layout(elf: bytes):
     if elf[:4] != b"\x7fELF" or elf[4] != 2 or elf[5] != 1:
         raise SystemExit("libmain.so must be little-endian ELF64")
-    hdr = struct.unpack_from("<16sHHIQQQIHHHHHH", elf, 0)
-    machine, phoff, phentsize, phnum = hdr[2], hdr[5], hdr[9], hdr[10]
-    if machine != 183:
+    h = struct.unpack_from("<16sHHIQQQIHHHHHH", elf, 0)
+    if h[2] != 183:
         raise SystemExit("libmain.so is not AArch64")
+    return h
+
+def va_to_offset(elf: bytes, va: int, size: int) -> int:
+    h = elf_layout(elf)
+    phoff, phentsize, phnum = h[5], h[9], h[10]
     for i in range(phnum):
         p = struct.unpack_from("<IIQQQQQQ", elf, phoff + i * phentsize)
         p_type, p_offset, p_vaddr, p_filesz = p[0], p[2], p[3], p[5]
         if p_type == 1 and p_vaddr <= va and va + size <= p_vaddr + p_filesz:
             return p_offset + (va - p_vaddr)
     raise SystemExit(f"shader VA {va:#x} is not file-backed by a PT_LOAD segment")
+
+def elf_sections(elf: bytes):
+    h = elf_layout(elf)
+    shoff, shentsize, shnum = h[6], h[11], h[12]
+    return [struct.unpack_from("<IIQQQQIIQQ", elf, shoff + i * shentsize) for i in range(shnum)]
+
+def verify_symbols_and_relocation(elf: bytes):
+    h = elf_layout(elf)
+    sections = elf_sections(elf)
+    found = set()
+    for sec in sections:
+        if sec[1] not in (2, 11):  # SHT_SYMTAB, SHT_DYNSYM
+            continue
+        link, off, size, entsize = sec[6], sec[4], sec[5], sec[9]
+        if not entsize or link >= len(sections):
+            continue
+        st = sections[link]
+        strings = elf[st[4]:st[4] + st[5]]
+        for pos in range(off, off + size, entsize):
+            name_off = struct.unpack_from("<I", elf, pos)[0]
+            if name_off < len(strings):
+                end = strings.find(b"\0", name_off)
+                if end >= 0:
+                    found.add(strings[name_off:end].decode("ascii", "replace"))
+    missing = [s for s in SYMBOLS if s not in found]
+    if missing:
+        raise SystemExit("Required NOS renderer ELF symbols missing: " + ", ".join(missing))
+    relocation_ok = False
+    for sec in sections:
+        if sec[1] != 4:  # SHT_RELA
+            continue
+        off, size, entsize = sec[4], sec[5], sec[9]
+        if not entsize:
+            continue
+        for pos in range(off, off + size, entsize):
+            r_offset, r_info, addend = struct.unpack_from("<QQq", elf, pos)
+            if r_offset == KSHADER_OBJECT:
+                relocation_ok = (r_info & 0xffffffff) == KSHADER_RELOC_TYPE and addend == SHADER_VA
+                break
+    if not relocation_ok:
+        raise SystemExit("nosfx::kShader relocation no longer targets the verified shader source")
 
 def strip_signature(name: str) -> bool:
     u = name.upper()
@@ -73,38 +122,19 @@ def main() -> int:
         so = src.read(so_name)
         if sha(so) != EXPECTED_SO:
             raise SystemExit("Pustaka libmain.so SHA-256 mismatch")
-        symbols = run("bash", "-lc", "readelf -Ws " + str(apk_path) + " 2>/dev/null") if False else ""
-        # Verify the ELF symbol table and the relocation that binds kShader to the source string.
-        tmp = out_path.with_suffix(".libmain.verify.so")
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_bytes(so)
-        symbol_text = run("bash", "-lc", "readelf -Ws " + str(tmp) + " | c++filt")
-        for marker in MARKERS:
-            if marker not in symbol_text:
-                raise SystemExit("Required renderer symbol missing: " + marker)
-        reloc = run("readelf", "-rW", str(tmp))
-        rel = next((line.split() for line in reloc.splitlines()
-                    if line.split() and line.split()[0].lower() == f"{KSHADER_OBJECT:016x}"), None)
-        if not rel or len(rel) < 4 or rel[2] != "R_AARCH64_RELATIVE" or rel[-1].lower() != f"{SHADER_VA:x}":
-            raise SystemExit(f"nosfx::kShader relocation mismatch: {rel}")
+        verify_symbols_and_relocation(so)
         offset = va_to_offset(so, SHADER_VA, SHADER_LEN + 1)
         end = so.find(b"\0", offset)
         original = so[offset:end]
         if len(original) != SHADER_LEN or sha(original) != EXPECTED_SHADER_SHA:
             raise SystemExit(f"Original NOS shader signature mismatch: len={len(original)} sha256={sha(original)}")
         patched_so = bytearray(so)
-        replacement = candidate + b"\0" * (SHADER_LEN - len(candidate) + 1)
-        patched_so[offset:offset + SHADER_LEN + 1] = replacement
+        patched_so[offset:offset + SHADER_LEN + 1] = candidate + b"\0" * (SHADER_LEN - len(candidate) + 1)
         if patched_so[:offset] != so[:offset] or patched_so[offset + SHADER_LEN + 1:] != so[offset + SHADER_LEN + 1:]:
             raise SystemExit("Patch escaped the exact shader source range")
         if patched_so[offset:offset + len(candidate)] != candidate or patched_so[offset + len(candidate)] != 0:
             raise SystemExit("Patched shader bytes or NUL terminator mismatch")
-        tmp.write_bytes(patched_so)
-        run("readelf", "-h", str(tmp))
-        symbol_after = run("bash", "-lc", "readelf -Ws " + str(tmp) + " | c++filt")
-        for marker in MARKERS:
-            if marker not in symbol_after:
-                raise SystemExit("Patched ELF lost renderer symbol: " + marker)
+        verify_symbols_and_relocation(bytes(patched_so))
         report = (
             f"original_apk_sha256={sha(apk_bytes)}\n"
             f"original_libmain_sha256={sha(so)}\n"
@@ -116,6 +146,7 @@ def main() -> int:
             f"zero_padding_bytes={SHADER_LEN-len(candidate)}\n"
             f"changed_bytes_only_inside_shader_slot=true\n"
             f"all_required_renderer_symbols_preserved=true\n"
+            f"kShader_relocation_preserved=true\n"
             f"new_texture_or_sampler_descriptors=false\n"
         )
         out_path.parent.mkdir(parents=True, exist_ok=True)
