@@ -54,7 +54,7 @@ def main() -> int:
         raise SystemExit("Lightning shader source SHA-256 mismatch; refusing unreviewed candidate")
     if not candidate or len(candidate) > SHADER_LEN:
         raise SystemExit("Candidate shader is empty or exceeds original source slot")
-    for marker in (b"ATTR0", b"ATTR1", b"SV_Position", b"TEXCOORD0", b"SV_Target", b"float4 vs(", b"float4 ps("):
+    for marker in (b"ATTR0", b"ATTR1", b"SV_Position", b"TEXCOORD0", b"SV_Target", b"Output vs(", b"float4 ps("):
         if marker not in candidate:
             raise SystemExit(f"Candidate missing interface marker: {marker!r}")
     if any(x in candidate for x in (b"Texture2D", b"SamplerState", b"register(t", b"register(s")):
