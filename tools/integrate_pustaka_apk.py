@@ -5,8 +5,13 @@ from pathlib import Path
 
 PACKAGE = "com.racas.mostwanted"
 DEX_MARKERS = (
-    b"Lcom/racas/mostwanted/FlipCar58;",
+    b"Lcom/racas/mostwanted/ModsActivity;",
+    b"Lcom/racas/mostwanted/ModArchive;",
+    b"Lcom/racas/mostwanted/ModInstaller;",
+    b"Lcom/racas/mostwanted/CarConverter;",
+    b"Lcom/racas/mostwanted/TexturePacks;",
     b"Lcom/racas/mostwanted/ModTransaction;",
+    b"Lcom/racas/mostwanted/FlipCar58;",
     b"Lcom/racas/mostwanted/CarScript;",
     b"Lcom/racas/mostwanted/BinaryNeon65;",
     b"Lcom/racas/mostwanted/NeonPack65;",
@@ -34,6 +39,7 @@ def is_base_entry_replaced(name: str) -> bool:
         or bool(re.fullmatch(r"classes\d*\.dex", name))
         or name == "AndroidManifest.xml"
     )
+
 def main() -> int:
     if len(sys.argv) != 4:
         raise SystemExit("usage: integrate_pustaka_apk.py BASE.apk PUSTAKA.apk OUTPUT.apk")
@@ -56,37 +62,46 @@ def main() -> int:
         native = source.read("lib/arm64-v8a/libmain.so")
         for marker in DEX_MARKERS:
             if marker not in all_dex:
-                raise SystemExit("Pustaka DEX marker missing: " + repr(marker))
+                raise SystemExit("Pustaka Mod Loader/runtime DEX marker missing: " + repr(marker))
         for marker in NATIVE_MARKERS:
             if marker not in native:
                 raise SystemExit("Pustaka native marker missing: " + repr(marker))
         manifest = source.read("AndroidManifest.xml")
         if PACKAGE.encode() not in manifest and PACKAGE.encode("utf-16le") not in manifest:
             raise SystemExit("Pustaka package id mismatch")
+        if b"com.racas.mostwanted.ModsActivity" not in manifest:
+            raise SystemExit("Pustaka manifest is missing ModsActivity")
+        if b"MANAGE_EXTERNAL_STORAGE" not in manifest:
+            raise SystemExit("Pustaka manifest is missing all-files storage permission")
 
-        merged = {}
+        merged: dict[str, bytes] = {}
+        merged_info: dict[str, zipfile.ZipInfo] = {}
         base_names = [n for n in base.namelist() if not n.endswith("/") and not is_signature(n)]
         if len(base_names) != len(set(base_names)):
             raise SystemExit("Base APK contains duplicate ZIP entries")
         for name in base_names:
             if not is_base_entry_replaced(name):
                 merged[name] = base.read(name)
-        # Keep the complete tested Pustaka application runtime together:
-        # manifest, all DEX files, resource table/resources, every native .so,
-        # and every packaged asset. Only stale signing records are discarded.
+                merged_info[name] = base.getinfo(name)
+        # Keep the complete tested Pustaka runtime together, while retaining the
+        # original ZIP compression method of every entry (especially native .so).
         for name in source_names:
+            info = source.getinfo(name)
+            if name.startswith("lib/") and name.endswith(".so") and info.compress_type != zipfile.ZIP_STORED:
+                raise SystemExit("Pustaka native library is compressed; refusing unsafe APK merge: " + name)
             merged[name] = source.read(name)
+            merged_info[name] = info
 
-        # Preserve every base-only game/data asset; fail if any disappeared.
         base_only = {n for n in base_names if not is_base_entry_replaced(n) and n not in source_set}
         for name in base_only:
             if name not in merged:
                 raise SystemExit("Base-only asset lost during merge: " + name)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as out:
+    with zipfile.ZipFile(output_path, "w") as out:
         for name in sorted(merged):
-            out.writestr(name, merged[name])
+            info = merged_info[name]
+            out.writestr(info, merged[name])
 
     with zipfile.ZipFile(output_path) as check:
         out_names = check.namelist()
@@ -107,10 +122,14 @@ def main() -> int:
         for name in base_only:
             if sha256(check.read(name)) != sha256(merged[name]):
                 raise SystemExit("Base game asset changed after merge: " + name)
+        for name in native_names:
+            if check.getinfo(name).compress_type != zipfile.ZIP_STORED:
+                raise SystemExit("native library compression changed: " + name)
 
     print("Pustaka entries integrated:", len(source_names))
+    print("Pustaka Mod Loader DEX markers: all present")
     print("Pustaka DEX files:", len(dex_names))
-    print("Pustaka native libraries:", len(native_names))
+    print("Pustaka native libraries (stored):", len(native_names))
     print("Base-only assets preserved:", len(base_only))
     print("Pustaka SHA-256:", sha256(source_path.read_bytes()))
     print("Merged APK bytes:", output_path.stat().st_size)
