@@ -26,8 +26,9 @@ jobs:
           git clone --depth 1 --branch 16.0.0 https://github.com/KhronosGroup/glslang.git "$RUNNER_TEMP/glslang"
           cmake -S "$RUNNER_TEMP/glslang" -B "$RUNNER_TEMP/glslang-build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_GLSLANG_BINARIES=ON -DENABLE_OPT=OFF -DENABLE_HLSL=ON -DENABLE_SPVREMAPPER=OFF -DENABLE_CTEST=OFF
           cmake --build "$RUNNER_TEMP/glslang-build" -j2
-          validator="$(find "$RUNNER_TEMP/glslang-build" -type f -name glslangValidator -perm -111 | head -1)"
-          if [ -z "$validator" ]; then echo "glslangValidator binary not found"; exit 1; fi
+          validator="$(find "$RUNNER_TEMP/glslang-build" -type f -name glslang -perm -111 | head -1)"
+          if [ -z "$validator" ]; then echo "glslang 16.0.0 binary not found"; exit 1; fi
+          ln -sf "$validator" "$(dirname "$validator")/glslangValidator"
           echo "$(dirname "$validator")" >> "$GITHUB_PATH"
           "$validator" --version
 
