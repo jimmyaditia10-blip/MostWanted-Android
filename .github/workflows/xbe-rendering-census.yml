@@ -2,7 +2,7 @@ name: XBE Rendering Census
 
 on:
   push:
-    branches: ["feature/lightning-particle-mask-v4"]
+    branches: ["research/xbe-nos-flare-path"]
     paths:
       - "default.xbe"
       - "tools/xbe_rendering_census.py"
