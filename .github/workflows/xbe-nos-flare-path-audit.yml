@@ -46,6 +46,16 @@ jobs:
             echo "=== DEX texture/mod-loader strings ==="
             strings -a /tmp/pustaka-classes.dex | grep -Ei 'TextureInfo|GetTextureInfo|TexturePack|TextureMapping|TextureManager|TextureCache|texturemappings|\.dds|ModTransaction|CarScript|ModsActivity' | sort -u || true
           } > pustaka-texture-api.txt
+          curl -L --fail --silent --show-error -o /tmp/jadx.zip "https://github.com/skylot/jadx/releases/download/v1.5.7/jadx-1.5.7.zip"
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          chmod +x /tmp/jadx/bin/jadx
+          /tmp/jadx/bin/jadx --no-res -d /tmp/pustaka-decompiled /tmp/pustaka.apk >/tmp/jadx.log 2>&1
+          {
+            echo "=== TexturePacks.java ==="
+            sed -n '1,320p' /tmp/pustaka-decompiled/sources/com/racas/mostwanted/TexturePacks.java
+            echo "=== TexturePacks related call sites ==="
+            grep -RniE 'textureMappings|texturepackinfo|isTexturePack|TexturePacks|neon65\.dds' /tmp/pustaka-decompiled/sources/com/racas/mostwanted | head -200
+          } > pustaka-texture-loader-source.txt
       - uses: actions/upload-artifact@v5
         with:
           name: xbox-nos-flare-path-audit
@@ -54,5 +64,6 @@ jobs:
             xbe-nos-flare-index.txt
             xbe-contrail-xrefs.txt
             pustaka-texture-api.txt
+            pustaka-texture-loader-source.txt
           if-no-files-found: error
           retention-days: 14
