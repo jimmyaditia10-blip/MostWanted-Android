@@ -58,6 +58,8 @@ jobs:
             grep -RniE 'textureMappings|texturepackinfo|isTexturePack|TexturePacks|neon65\.dds' /tmp/pustaka-decompiled/sources/com/racas/mostwanted | head -200
           } > pustaka-texture-loader-source.txt
           python -m pip install --disable-pip-version-check pyelftools
+          sha256sum /tmp/pustaka-libmain.so > pustaka-libmain.sha256
+          cp /tmp/pustaka-libmain.so ./pustaka-libmain.so
           python tools/pustaka_nosfx_audit.py /tmp/pustaka-libmain.so > pustaka-nosfx-disasm.txt
       - uses: actions/upload-artifact@v5
         with:
@@ -69,5 +71,7 @@ jobs:
             pustaka-texture-api.txt
             pustaka-texture-loader-source.txt
             pustaka-nosfx-disasm.txt
+            pustaka-libmain.so
+            pustaka-libmain.sha256
           if-no-files-found: error
           retention-days: 14
