@@ -22,12 +22,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y glslang-tools spirv-tools
 
+      - uses: android-actions/setup-android@v3
+
+      - name: Install APK signing tools
+        run: sdkmanager "build-tools;35.0.0"
+
       - name: Download and verify exact Pustaka reference
         shell: bash
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 --output MostWanted-1.4.0.apk "https://github.com/jimmyaditia10-blip/MostWanted-Android/releases/download/pustaka-apk-source-2026-11-23/MostWanted-1.4.0.apk"
           echo "222da4e42a2c14bba5adf44df1539964b9809a0a4f44c8b688f944503f8d49bc  MostWanted-1.4.0.apk" | sha256sum --check -
+
+      - name: Check installation signing-key compatibility
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$signer" verify --verbose --print-certs MostWanted-1.4.0.apk | tee audit/pustaka-signature.txt
+          apk_cert=$(sed -n 's/.*certificate SHA-256 digest: *//p' audit/pustaka-signature.txt | head -1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEY_ALIAS" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            keytool -list -v -keystore "$RUNNER_TEMP/release.jks" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" > audit/repo-keystore.txt
+            repo_cert=$(sed -n 's/^[[:space:]]*SHA256: *//p' audit/repo-keystore.txt | head -1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+            if [ "$apk_cert" = "$repo_cert" ]; then
+              echo "Pustaka APK and repository release keystore match: in-place update signing is compatible." | tee audit/signature-compatibility.txt
+            else
+              echo "Pustaka APK and repository release keystore do NOT match: Android will require uninstall/reinstall unless the original signing key is supplied." | tee audit/signature-compatibility.txt
+            fi
+          else
+            echo "Repository release keystore secrets are unavailable. Build workflow will use a runner debug key; update compatibility cannot be guaranteed." | tee audit/signature-compatibility.txt
+          fi
 
       - name: Verify exact in-place shader patch boundaries
         run: |
@@ -62,6 +93,9 @@ jobs:
           name: nos-lightning-shader-validation
           path: |
             audit/patch-validation.json
+            audit/pustaka-signature.txt
+            audit/repo-keystore.txt
+            audit/signature-compatibility.txt
             audit/shader/
             audit/spirv/
           if-no-files-found: error
