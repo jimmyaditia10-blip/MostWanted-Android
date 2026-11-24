@@ -26,6 +26,11 @@ TARGETS = (
     "RelativeProjection",
     "DrawPanel",
     "Compile",
+    "streetlight",
+    "vehiclelighting",
+    "PixelSource",
+    "FillViewport",
+    "VulkanBackend4Draw",
 )
 
 def hx(v):
@@ -52,7 +57,7 @@ def main():
         symbols = []
         for sym in symtab.iter_symbols():
             name = sym.name or ""
-            if any(k in name.lower() for k in ("nosfx", "drawnostrail", "streetlight", "vehiclelighting", "vkshader")):
+            if any(k in name.lower() for k in ("nosfx", "drawnostrail", "streetlight", "vehiclelighting", "vkshader", "vulkanbackend", "pixelshader", "vertexshader", "gpu::backend")):
                 symbols.append((name, int(sym['st_value']), int(sym['st_size']),
                                 sym['st_info']['type'], sym['st_shndx']))
         symbols.sort(key=lambda x: (x[1], x[0]))
