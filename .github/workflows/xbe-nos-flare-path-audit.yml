@@ -1,7 +1,7 @@
 name: Xbox NOS Flare Path Audit
 
 # Read-only XBE audit: no game code or runtime assets are patched.
-# Hashes, pointer tables, and call sites are emitted for reverse-engineering review.
+# Hashes, pointer tables, caller chains, and disassembly are emitted for review.
 on:
   workflow_dispatch:
   push:
