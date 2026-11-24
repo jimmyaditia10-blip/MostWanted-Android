@@ -69,10 +69,16 @@ def main() -> int:
         manifest = source.read("AndroidManifest.xml")
         if PACKAGE.encode() not in manifest and PACKAGE.encode("utf-16le") not in manifest:
             raise SystemExit("Pustaka package id mismatch")
-        if b"com.racas.mostwanted.ModsActivity" not in manifest:
-            raise SystemExit("Pustaka manifest is missing ModsActivity")
-        if b"MANAGE_EXTERNAL_STORAGE" not in manifest:
-            raise SystemExit("Pustaka manifest is missing all-files storage permission")
+        # AndroidManifest.xml is compiled binary XML. Attribute strings may be
+        # stored as short/long UTF-8 or UTF-16LE entries, and activity names
+        # are commonly package-relative (".ModsActivity") rather than fully
+        # qualified. The DEX descriptor check above verifies the actual class.
+        def axml_has(value: str) -> bool:
+            return value.encode("utf-8") in manifest or value.encode("utf-16le") in manifest
+        if not axml_has("ModsActivity"):
+            raise SystemExit("Pustaka manifest has no ModsActivity declaration")
+        if not axml_has("MANAGE_EXTERNAL_STORAGE"):
+            raise SystemExit("Pustaka manifest has no all-files storage permission")
 
         merged: dict[str, bytes] = {}
         merged_info: dict[str, zipfile.ZipInfo] = {}
