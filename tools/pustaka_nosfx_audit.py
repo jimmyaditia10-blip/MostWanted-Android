@@ -16,6 +16,12 @@ TARGETS = (
     "History5Clear",
     "HistoryD2",
     "kShader",
+    "UpdateNosTrail",
+    "BeginVehicleLights",
+    "CaptureDraw",
+    "RelativeProjection",
+    "DrawPanel",
+    "Compile",
 )
 
 def hx(v):
@@ -134,10 +140,13 @@ def main():
                     pos = data.find(needle, start)
                     if pos < 0:
                         break
-                    lo = data.rfind(b"\\0", 0, pos) + 1
-                    hi = data.find(b"\\0", pos)
-                    if hi < 0:
-                        hi = len(data)
+                    lo = pos
+                    hi = pos
+                    allowed = set(range(32, 127)) | {9, 10, 13}
+                    while lo > 0 and data[lo - 1] in allowed:
+                        lo -= 1
+                    while hi < len(data) and data[hi] in allowed:
+                        hi += 1
                     blob = data[lo:hi]
                     if b"coreLight" in blob or b"glowLight" in blob:
                         print(f"\\n--- {secname} VA={hx(va+lo)} bytes={len(blob)} ---")
