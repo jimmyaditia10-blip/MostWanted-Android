@@ -82,3 +82,13 @@ Therefore the safe order is:
 4. Re-run APK alignment, signature, entry-count and payload checks.
 
 The previous Build 7 artifact was inspected directly and did not contain the Pustaka runtime despite the intermediate integration log. The current `fix/full-pustaka-loader-parity` workflow now includes a final payload verifier after signing and copying; its current run has not completed yet. Do not treat Build 7 as a valid integrated base.
+
+### Exact Build 120 ↔ Pustaka APK delta
+
+A byte-for-byte ZIP-entry comparison found:
+- 170 entries common to both APKs.
+- No Build 120-only entries.
+- Four Pustaka-only entries: `assets/thunder/thunder0.wav` through `thunder3.wav`.
+- Only seven common entries differ: `AndroidManifest.xml`, `classes.dex`, `lib/arm64-v8a/libSDL3.so`, `lib/arm64-v8a/libmain.so`, `res/b9.xml`, `resources.arsc`, and `META-INF/version-control-info.textproto`.
+
+Thus the required runtime transfer is bounded and auditable: preserve all identical Build 120 entries, replace those seven differing entries with their tested Pustaka counterparts, and add the four thunder assets. The manifest/resources/Dex/native pair are coupled and should be transferred together; do not copy only `libmain.so`. This is the precise payload that the integration verifier must check.
